@@ -56,7 +56,7 @@ export function useConsole() {
     chatSearch: '', chatActiveSearch: '', chatListError: '', conversationId: '', conversation: null, chatLoading: false, chatError: '', confirmation: null
   });
   let pollTimer, liveTimer, toastTimer, refreshing = false, generation = 0, disposed = false, napcatLoading = false, napcatGeneration = 0, confirmationResolve = null;
-  let liveRevision = 0, configRevision = 0, configWrites = 0, subscriptionEditRevision = 0, previewRevision = 0, healthGeneration = 0, healthLastLoad = 0;
+  let liveRevision = 0, liveRequestId = 0, liveInFlight = false, configRevision = 0, configWrites = 0, subscriptionEditRevision = 0, previewRevision = 0, healthGeneration = 0, healthLastLoad = 0;
   let detailGeneration = 0;
   const settingsRevision = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0 }, settingsWrites = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0 };
   let chatListGeneration = 0, chatGeneration = 0;
@@ -76,7 +76,7 @@ export function useConsole() {
   }
   function showLogin() {
     resolveConfirmation(false);
-    generation++; clearTimeout(pollTimer); clearTimeout(liveTimer); liveRevision++;
+    generation++; clearTimeout(pollTimer); clearTimeout(liveTimer); liveRevision++; liveRequestId++; liveInFlight = false; state.busy.live = false;
     state.authenticated = false; state.adminUsername = ''; state.config = {}; state.status = {};
     state.adminSetup = { username: '', password: '', confirmPassword: '' }; state.adminSetupError = '';
     state.connection = {}; state.model = {}; state.privateUsers = []; state.privateDraft = ''; state.groupRules = []; state.groupDraft = { id: '', ds: true, video: true }; state.webhookToken = '';
@@ -342,7 +342,7 @@ export function useConsole() {
     finally { state.busy[key] = false; }
   }
   function navigate(page, { replace = false } = {}) {
-    if (page !== 'live') { clearTimeout(liveTimer); liveRevision++; }
+    if (page !== 'live') { clearTimeout(liveTimer); liveRevision++; liveRequestId++; liveInFlight = false; state.busy.live = false; }
     if (['groups', 'private', 'whitelist/groups', 'whitelist/private', 'whitelist'].includes(page)) {
       if (page !== 'whitelist') state.whitelistTab = page === 'private' || page === 'whitelist/private' ? 'private' : 'groups';
       page = 'whitelist';
@@ -382,17 +382,37 @@ export function useConsole() {
     }
   }
   function syncHash() { navigate(location.hash.slice(1), { replace: true }); }
-  const loadLiveTasks = () => run('live', async () => {
+  async function loadLiveTasks(trigger = false) {
+    const manual = trigger === true || (typeof trigger === 'object' && trigger !== null && 'target' in trigger);
+    const force = manual || trigger === 'select';
+    if (liveInFlight && !force) return;
+    if (manual && state.busy.live) return;
     clearTimeout(liveTimer);
-    const version = generation, revision = liveRevision;
+    const version = generation, revision = liveRevision, request = ++liveRequestId;
+    liveInFlight = true;
+    if (manual) state.busy.live = true;
     try {
       const data = await api(`live-tasks${state.liveSelectedId ? '?id=' + encodeURIComponent(state.liveSelectedId) : ''}`);
-      if (version !== generation || revision !== liveRevision || disposed || state.page !== 'live') return;
+      if (version !== generation || revision !== liveRevision || request !== liveRequestId || disposed || state.page !== 'live') return;
       state.liveTasks = data; state.liveSelectedId = data.selected?.id || ''; state.liveError = '';
-    } catch (error) { if (version === generation && revision === liveRevision && state.page === 'live') state.liveError = error.message; }
-    finally { if (!disposed && version === generation && state.authenticated && state.page === 'live') liveTimer = setTimeout(loadLiveTasks, 1000); }
-  });
-  function selectLiveTask(id) { if (id !== state.liveSelectedId) { state.liveSelectedId = id; liveRevision++; clearTimeout(liveTimer); void loadLiveTasks(); } }
+    } catch (error) {
+      if (version === generation && revision === liveRevision && request === liveRequestId && state.page === 'live') state.liveError = error.message;
+    } finally {
+      if (manual) state.busy.live = false;
+      if (request === liveRequestId) liveInFlight = false;
+      if (!disposed && version === generation && request === liveRequestId && state.authenticated && state.page === 'live') {
+        liveTimer = setTimeout(() => { void loadLiveTasks(false); }, 1000);
+      }
+    }
+  }
+  function selectLiveTask(id) {
+    if (id !== state.liveSelectedId) {
+      state.liveSelectedId = id;
+      liveRevision++;
+      clearTimeout(liveTimer);
+      void loadLiveTasks('select');
+    }
+  }
   function schedule() {
     clearTimeout(pollTimer);
     if (!disposed && state.authenticated) pollTimer = setTimeout(refresh, 5000);

@@ -138,6 +138,47 @@ test('实时页迟到响应不会在切页或退出后恢复问题和思考内�
   assert.equal(c.state.liveTasks, null); assert.equal(c.state.liveSelectedId, ''); assert.equal(c.state.authenticated, false);
 });
 
+test('实时页定时轮询不触发 busy 闪烁，切换任务不被在途轮询丢弃', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let c, resolvePoll, resolveSelect, busyDuringPoll = false;
+  await renderToString(createSSRApp({ setup() { c = useConsole(); return () => null; } }));
+  c.state.authenticated = true; c.state.page = 'live';
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', url => {
+    calls.push(url);
+    if (url.includes('id=task-b')) return new Promise(r => { resolveSelect = r; });
+    return new Promise(r => { resolvePoll = r; });
+  });
+
+  // 1. 后台自动轮询期间 state.busy.live 保持 false，不会每秒闪烁“正在读取任务…”与禁用按钮
+  const initial = c.loadLiveTasks();
+  assert.equal(Boolean(c.state.busy.live), false);
+  resolvePoll(Response.json({ tasks: [{ id: 'task-a' }, { id: 'task-b' }], selected: { id: 'task-a', answer: 'A 输出' } }));
+  await initial;
+  assert.equal(c.state.liveSelectedId, 'task-a');
+
+  t.mock.timers.tick(1000);
+  busyDuringPoll = Boolean(c.state.busy.live);
+  assert.equal(busyDuringPoll, false);
+
+  // 2. 在途后台轮询未返回时切换任务，不会被 busy 丢弃；旧响应迟到也不能覆盖新任务
+  c.selectLiveTask('task-b');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(calls.some(url => url.includes('id=task-b')));
+  resolvePoll(Response.json({ tasks: [{ id: 'task-a' }, { id: 'task-b' }], selected: { id: 'task-a', answer: '旧响应' } }));
+  resolveSelect(Response.json({ tasks: [{ id: 'task-a' }, { id: 'task-b' }], selected: { id: 'task-b', answer: 'B 输出' } }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(c.state.liveTasks.selected.id, 'task-b');
+  assert.equal(c.state.liveTasks.selected.answer, 'B 输出');
+
+  // 3. 手动点击刷新才短时锁定刷新按钮，结束后自动恢复
+  const manual = c.loadLiveTasks(true);
+  assert.equal(c.state.busy.live, true);
+  resolveSelect(Response.json({ tasks: [{ id: 'task-b' }], selected: { id: 'task-b', answer: 'B 更新' } }));
+  await manual;
+  assert.equal(c.state.busy.live, false);
+});
+
 test('签到设置保留草稿，快捷开关仅更新 enabled，退出后迟到响应不恢复成员信息', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let c, finish;

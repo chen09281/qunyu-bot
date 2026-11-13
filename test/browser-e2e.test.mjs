@@ -177,6 +177,27 @@ test('真实 Headless 浏览器端到端冒烟：建号、路由切换、聊天�
     await cdp.evalJs(`Array.from(document.querySelectorAll('.nav-item')).find(b => b.textContent.includes('酒馆')).click()`);
     await cdp.waitFor(`!!document.querySelector('.tavern-panel') && !!document.querySelector('.scope-mode-select')`);
 
+    // Navigate to Live Tasks page and verify empty-state right card & refresh button stay steady across 1s polls
+    await cdp.evalJs(`Array.from(document.querySelectorAll('.nav-item')).find(b => b.textContent.includes('实时任务')).click()`);
+    await cdp.waitFor(`document.querySelector('#page-live .detail-empty')?.textContent?.includes('选择一条任务')`);
+    await cdp.evalJs(`(() => {
+      const detail = document.querySelector('#page-live .task-detail');
+      const refreshBtn = document.querySelector('#page-live .page-heading button');
+      window.__liveMutations = 0;
+      window.__liveInitialHeight = detail.getBoundingClientRect().height;
+      const obs = new MutationObserver(() => { window.__liveMutations++; });
+      obs.observe(detail, { childList: true, characterData: true, attributes: true, subtree: true });
+      obs.observe(refreshBtn, { attributes: true, attributeFilter: ['disabled'] });
+      window.__liveObserver = obs;
+    })()`);
+    await new Promise(resolve => setTimeout(resolve, 2300));
+    const liveCheck = await cdp.evalJs(`(() => {
+      window.__liveObserver.disconnect();
+      const detail = document.querySelector('#page-live .task-detail');
+      return { mutations: window.__liveMutations, heightDelta: Math.abs(detail.getBoundingClientRect().height - window.__liveInitialHeight) };
+    })()`);
+    assert.deepEqual(liveCheck, { mutations: 0, heightDelta: 0 });
+
     // Navigate to Plugins -> Fun Workshop & save a toggle
     await cdp.evalJs(`Array.from(document.querySelectorAll('.nav-item')).find(b => b.textContent.includes('插件')).click()`);
     await cdp.waitFor(`!!document.querySelector('#fun-plugin-title')`);
