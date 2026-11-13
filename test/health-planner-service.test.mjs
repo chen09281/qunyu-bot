@@ -119,7 +119,10 @@ test('QQ 指令完整闭环：建档、拍照识图记一餐、Apple 队列联�
     message: [{ type: 'text', data: { text: '/健康 同步' } }]
   });
   await Promise.all([...cmds.jobs]);
-  const syncText = sent.at(-1).params.message.map(s => s.data?.text || '').join('');
+  const syncText = sent
+    .filter(item => item.action === 'send_private_msg')
+    .map(item => item.params.message.map(s => s.data?.text || '').join(''))
+    .join('\n');
   assert.match(syncText, /https:\/\/bot\.example\.com\/bridge\/health\/sync/);
   assert.match(syncText, /个人同步 Token：/);
 
@@ -364,13 +367,17 @@ test('HealthPlannerCommands 支持 QQ 直发已签名 iPhone 快捷指令文件�
   }
   assert.deepEqual(readdirSync(join(dataDir, 'media')), []);
 
-  const privateMsgs = sent.filter(item => item.action === 'send_private_msg');
-  const lastPrivateText = privateMsgs.at(-1).params.message.map(s => s.data?.text || '').join('');
-  assert.match(lastPrivateText, /服务器地址：https:\/\/bot\.example\.com/);
-  assert.match(lastPrivateText, /个人同步 Token：/);
+  const privateMsgs = sent
+    .filter(item => item.action === 'send_private_msg')
+    .map(item => item.params.message.map(s => s.data?.text || '').join(''));
+  assert.equal(privateMsgs.length, 3);
+  assert.match(privateMsgs[0], /服务器地址：https:\/\/bot\.example\.com/);
+  assert.match(privateMsgs[0], /个人同步 Token：/);
   const issuedToken = plannerStore.getUser('50001')?.syncToken;
   assert.ok(issuedToken);
-  assert.ok(lastPrivateText.includes(issuedToken));
+  assert.ok(privateMsgs[0].includes(issuedToken));
+  assert.equal(privateMsgs[1], 'https://bot.example.com');
+  assert.equal(privateMsgs[2], issuedToken);
 
   // 2. 群聊 /健康 快捷指令：通过 upload_group_file 发送 3 个文件且不泄露个人 Token
   sent.length = 0;

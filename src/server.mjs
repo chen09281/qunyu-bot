@@ -224,7 +224,8 @@ export async function createApplication(options = {}) {
     if (secureCookie) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
-      const requestUrl = new URL(req.url, 'http://localhost'), path = requestUrl.pathname;
+      const normalizedUrl = String(req.url || '/').replace(/^\/+/, '/');
+      const requestUrl = new URL(normalizedUrl, 'http://localhost'), path = requestUrl.pathname;
       if (path === '/health' && req.method === 'GET') return send(200, { ok: true, app: 'qq-deepseek-bot', instanceId });
       const toolDownload = tokenToolResponse(path, req.method, { androidApkPath: join(dataDir, 'downloads', 'kuro-token-android.apk') });
       if (toolDownload) {
@@ -251,25 +252,26 @@ export async function createApplication(options = {}) {
         bot.receive(parseJSON(raw));
         return send(200, {}); // Acknowledge immediately, do not let NapCat retry slow model calls.
       }
-      if (path.startsWith('/bridge/health/')) {
+      const bridgePath = path.replace(/^\/+/, '/');
+      if (bridgePath.startsWith('/bridge/health/')) {
         const ip = req.socket.remoteAddress || '';
         limitAction(`health-bridge:${ip}`, 60);
         const bearer = /^\s*Bearer\s+(\S+)\s*$/i.exec(req.headers.authorization || '')?.[1] || '';
-        if (path === '/bridge/health/sync' && req.method === 'POST') {
+        if (bridgePath === '/bridge/health/sync' && req.method === 'POST') {
           if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
           const result = healthPlanner.ingestAppleHealth(bearer, parseJSON(await body(req, 64 * 1024)));
           return send(result.status, result.body);
         }
-        if (path === '/bridge/health/pending' && req.method === 'GET') {
+        if (bridgePath === '/bridge/health/pending' && req.method === 'GET') {
           const result = healthPlanner.pullPendingAppleNutrition(bearer);
           return send(result.status, result.body);
         }
-        if (path === '/bridge/health/ack' && req.method === 'POST') {
+        if (bridgePath === '/bridge/health/ack' && req.method === 'POST') {
           if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
           const result = healthPlanner.ackPendingAppleNutrition(bearer, parseJSON(await body(req, 64 * 1024)));
           return send(result.status, result.body);
         }
-        if (path === '/bridge/health/log' && req.method === 'POST') {
+        if (bridgePath === '/bridge/health/log' && req.method === 'POST') {
           if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
           const result = await healthPlanner.logMealFromBridge(bearer, parseJSON(await body(req, 5 * 1024 * 1024)));
           return send(result.status, result.body);

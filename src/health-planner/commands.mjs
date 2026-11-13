@@ -332,16 +332,19 @@ export class HealthPlannerCommands {
             this.service.plannerStore.save();
             return { user: u, token: u.syncToken };
           })();
-      const base = String(this.store.config.consolePublicUrl || '').trim().replace(/\/+$/, '') || 'http://你的服务器地址:端口';
+      const configuredBase = String(this.store.config.consolePublicUrl || '').trim().replace(/\/+$/, '');
+      const base = configuredBase || 'http://你的服务器地址:端口';
       const upload = await this.sendShortcutFiles(event, { isGroup: false }).catch(() => ({ total: 3, uploaded: 0, failed: 3 }));
       const deliveryLine = upload.uploaded > 0
-        ? `📲 已通过 QQ 发送 ${upload.uploaded} 个 iPhone 快捷指令文件（无需 macOS 应用，不用打开浏览器；手机 QQ 点开文件 →「用其他应用打开 / 快捷指令」导入）：`
+        ? `📲 已通过 QQ 发送 ${upload.uploaded} 个 iPhone 快捷指令文件（无需 macOS 应用；手机 QQ 点开文件 →「用其他应用打开 / 快捷指令」导入）：`
         : `📲 QQ 快捷指令文件暂未发送成功，请用 iPhone Safari 打开安装页下载：`;
       const lines = [
         `🍎 Apple 健康同步配置（仅你自己可见）：`,
         `服务器地址：${base}`,
         `个人同步 Token：${user.token}`,
         `（发送「/健康 同步 重置」可立即作废旧 Token 并换新）`,
+        ``,
+        `💡 安装填参最省事方式：下方紧接着会单独发送【服务器地址】和【个人 Token】两条纯文本消息，手机 QQ 长按整条消息点「复制」即可精准粘入！注意服务器地址请保留 ${base.startsWith('https://') ? 'https://' : 'http://'}（若之前运行提示「TLS错误导致安全连接失败」，点快捷指令右上角「…」把第 1 格开头的 https:// 改成 http:// 即可，或删旧重装本次文件）。`,
         ``,
         deliveryLine,
         `   1. 桌面一键记一餐.shortcut —— 复制外卖清单/菜名文字或截图后点「识别剪贴板内容」，即刻走 DeepSeek/识图记餐并写入 Apple 健康`,
@@ -356,7 +359,9 @@ export class HealthPlannerCommands {
         `   4. 桌面一键记一餐：POST ${base}/bridge/health/log`,
         `   鉴权请求头均为：Authorization: Bearer ${user.token}`
       ];
-      return this.sendReply(event, lines.join('\n'));
+      await this.sendReply(event, lines.join('\n'));
+      if (configuredBase) await this.sendReply(event, configuredBase);
+      return this.sendReply(event, user.token);
     }
 
     if (parsed.type === 'onboard') {

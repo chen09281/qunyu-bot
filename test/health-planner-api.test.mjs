@@ -312,4 +312,11 @@ test('Apple Shortcuts 安装页 (/tools/health/*) 与快捷记餐端到端 API (
   const ackBody = await ackRes.json();
   assert.equal(ackBody.acked, 2);
   assert.equal(ackBody.remaining, 0);
+
+  // Double-slash bridge URLs caused by a trailing slash in server base URL still route cleanly.
+  const doubleSlashRes = await fetch(`${url}//bridge/health/pending`, {
+    headers: { Authorization: `Bearer ${user.syncToken}` }
+  });
+  assert.equal(doubleSlashRes.status, 200);
+  assert.deepEqual(await doubleSlashRes.json(), { ok: true, count: 0, items: [] });
 });

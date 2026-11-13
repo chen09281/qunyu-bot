@@ -219,8 +219,12 @@ function renderPage({ publicUrl = '' } = {}) {
         <p>无需安装任何电脑端或 macOS 应用。建议直接在 QQ 发 <code>/健康 同步</code>（私聊）或 <code>/健康 快捷指令</code> 接收 <code>.shortcut</code> 文件后，在 iPhone 上点「用其他应用打开 → 快捷指令」；若从网页下载，请点击右上角切换为 iPhone 自带 <b>Safari</b>，或下载到「文件」App 后点击导入。</p>
       </details>
       <details>
+        <summary>运行时提示「TLS 错误导致安全连接失败」怎么解决？</summary>
+        <p>说明快捷指令里填的服务器地址用了 <code>https://</code>，而当前服务端监听的是 <code>http://</code> 端口（例如 <code>http://你的IP:3080</code>）。在「快捷指令」App 点开对应指令右上角「…」，把最顶部第 1 格「文本」改回 <code>http://...</code> 即可（也可直接在 QQ 私聊发 <code>/健康 同步</code>，长按复制单独发给你的那条纯地址消息）。</p>
+      </details>
+      <details>
         <summary>安装时如果漏填了服务器地址或 Token，还能修改吗？</summary>
-        <p>可以。在「快捷指令」App 里点开对应指令右上角「…」，把最顶部两个「文本」动作里的内容分别改成你的服务器地址（不含末尾斜杠）和个人同步 Token 即可，无需重装。</p>
+        <p>可以。在「快捷指令」App 里点开对应指令右上角「…」，把最顶部两个「文本」动作里的内容分别改成你的服务器地址（注意保留正确的 <code>http://</code> 或 <code>https://</code>）和个人同步 Token 即可，无需重装。</p>
       </details>
       <details>
         <summary>需要设置 iPhone 自动后台同步健康数据吗？</summary>

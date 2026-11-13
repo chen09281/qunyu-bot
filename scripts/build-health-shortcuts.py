@@ -261,6 +261,60 @@ def act_detect_text(uid: str, input_ref: dict[str, Any]) -> dict[str, Any]:
     })
 
 
+def act_replace_text(
+    uid: str,
+    find: str,
+    replace: str,
+    input_ref: dict[str, Any],
+    *,
+    regex: bool = True,
+) -> dict[str, Any]:
+    return action("is.workflow.actions.text.replace", {
+        "UUID": uid,
+        "WFReplaceTextFind": find,
+        "WFReplaceTextReplace": replace,
+        "WFReplaceTextCaseSensitive": False,
+        "WFReplaceTextRegularExpression": regex,
+        "WFInput": token_attachment(input_ref),
+    })
+
+
+def build_config_header_actions(
+    scope: str,
+    comment_text: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """
+    Keep Comment(0), Server URL(1), Token(2) at fixed ActionIndex positions for
+    WFWorkflowImportQuestions, then strip copied labels/trailing slashes/whitespace.
+    """
+    u_url = make_uuid(scope, "url")
+    u_tok = make_uuid(scope, "tok")
+    u_url_clean = make_uuid(scope, "url_clean")
+    u_tok_clean = make_uuid(scope, "tok_clean")
+    actions = [
+        act_comment(comment_text),
+        act_text(u_url, "http://你的服务器地址:端口"),
+        act_text(u_tok, ""),
+        act_replace_text(
+            u_url_clean,
+            r"^\s*(?:服务器地址[:：]\s*)?|[/\s]+$",
+            "",
+            action_output_ref(u_url, "Text"),
+        ),
+        act_replace_text(
+            u_tok_clean,
+            r"^\s*(?:个人同步\s*Token[:：]\s*)?|\s+$",
+            "",
+            action_output_ref(u_tok, "Text"),
+        ),
+    ]
+    return (
+        actions,
+        action_output_ref(u_url_clean, "Updated Text"),
+        action_output_ref(u_tok_clean, "Updated Text"),
+    )
+
+
 def act_set_variable(var_name: str, input_ref: dict[str, Any]) -> dict[str, Any]:
     return action("is.workflow.actions.setvariable", {
         "WFVariableName": var_name,
@@ -351,16 +405,16 @@ def wrap_workflow(
             {
                 "ActionIndex": url_action_index,
                 "Category": "Parameter",
-                "DefaultValue": "https://你的服务器地址",
+                "DefaultValue": "",
                 "ParameterKey": "WFTextActionText",
-                "Text": "第一步：填入 Bot 服务器地址（不含末尾 /，可在下载页点「复制服务器地址」）",
+                "Text": "第一步：粘贴 QQ 发给你的服务器地址（例如 http://你的IP:3080；注意保持 http://，不要改成 https://）",
             },
             {
                 "ActionIndex": token_action_index,
                 "Category": "Parameter",
                 "DefaultValue": "",
                 "ParameterKey": "WFTextActionText",
-                "Text": "第二步：填入个人同步 Token（QQ 私聊发送「/健康 同步」获取）",
+                "Text": "第二步：粘贴个人同步 Token（QQ 私聊发送「/健康 同步」会单独发给你一条纯 Token 消息）",
             },
         ],
         "WFWorkflowInputContentItemClasses": [],
@@ -374,8 +428,6 @@ def wrap_workflow(
 
 def build_sync_apple_to_bot() -> dict[str, Any]:
     s = "sync-apple-to-bot"
-    u_url = make_uuid(s, "url")
-    u_tok = make_uuid(s, "tok")
     u_steps_find = make_uuid(s, "steps_find")
     u_steps_sum = make_uuid(s, "steps_sum")
     u_active_find = make_uuid(s, "active_find")
@@ -387,8 +439,10 @@ def build_sync_apple_to_bot() -> dict[str, Any]:
     u_day = make_uuid(s, "day")
     g_ok = make_uuid(s, "if_ok")
 
-    r_url = action_output_ref(u_url, "Text")
-    r_tok = action_output_ref(u_tok, "Text")
+    header_actions, r_url, r_tok = build_config_header_actions(
+        s,
+        "同步今日 Apple 健康步数、活动能量和最新体重到 QQ Bot，用于动态修正每日目标热量。",
+    )
     r_steps = action_output_ref(u_steps_sum, "Statistics")
     r_active = action_output_ref(u_active_sum, "Statistics")
     r_weight = action_output_ref(u_weight_val, "Value")
@@ -397,9 +451,7 @@ def build_sync_apple_to_bot() -> dict[str, Any]:
     r_day = action_output_ref(u_day, "Dictionary Value")
 
     actions = [
-        act_comment("同步今日 Apple 健康步数、活动能量和最新体重到 QQ Bot，用于动态修正每日目标热量。"),
-        act_text(u_url, "https://你的服务器地址"),
-        act_text(u_tok, "在此填入个人同步Token"),
+        *header_actions,
         act_find_health(u_steps_find, "Steps", today_only=True),
         act_statistics_sum(u_steps_sum, action_output_ref(u_steps_find, "Health Samples")),
         act_find_health(u_active_find, "Active Calories", today_only=True),
@@ -441,8 +493,6 @@ def build_sync_apple_to_bot() -> dict[str, Any]:
 
 def build_meals_bot_to_apple() -> dict[str, Any]:
     s = "meals-bot-to-apple"
-    u_url = make_uuid(s, "url")
-    u_tok = make_uuid(s, "tok")
     u_http_get = make_uuid(s, "http_get")
     u_dict = make_uuid(s, "dict")
     u_items = make_uuid(s, "items")
@@ -451,8 +501,10 @@ def build_meals_bot_to_apple() -> dict[str, Any]:
     g_loop = make_uuid(s, "loop")
     u_loop_end = make_uuid(s, "loop_end")
 
-    r_url = action_output_ref(u_url, "Text")
-    r_tok = action_output_ref(u_tok, "Text")
+    header_actions, r_url, r_tok = build_config_header_actions(
+        s,
+        "从 QQ Bot 拉取尚未写入 Apple 健康的记餐记录，写入膳食能量/三大营养素后确认出队。",
+    )
     r_http_get = action_output_ref(u_http_get, "Contents of URL")
     r_dict = action_output_ref(u_dict, "Dictionary")
     r_items = action_output_ref(u_items, "Dictionary Value")
@@ -476,9 +528,7 @@ def build_meals_bot_to_apple() -> dict[str, Any]:
     r_repeat_results = action_output_ref(u_loop_end, "Repeat Results")
 
     actions = [
-        act_comment("从 QQ Bot 拉取尚未写入 Apple 健康的记餐记录，写入膳食能量/三大营养素后确认出队。"),
-        act_text(u_url, "https://你的服务器地址"),
-        act_text(u_tok, "在此填入个人同步Token"),
+        *header_actions,
         act_http_json(u_http_get, "GET", [r_url, "/bridge/health/pending"], r_tok),
         act_detect_dict(u_dict, r_http_get),
         act_dict_value(u_items, "items", r_dict),
@@ -544,12 +594,12 @@ def build_meals_bot_to_apple() -> dict[str, Any]:
 
 def build_quick_log_meal() -> dict[str, Any]:
     s = "quick-log-meal"
-    u_url = make_uuid(s, "url")
-    u_tok = make_uuid(s, "tok")
     g_mode = make_uuid(s, "menu_mode")
 
-    r_url = action_output_ref(u_url, "Text")
-    r_tok = action_output_ref(u_tok, "Text")
+    header_actions, r_url, r_tok = build_config_header_actions(
+        s,
+        "桌面一键记一餐：优先支持直接识别剪贴板中复制的菜名/外卖文字或截图，也支持粘贴编辑、拍照与相册选图，调用 DeepSeek / 识图估算热量与营养并写入 Apple 健康。",
+    )
     r_resp_var = variable_ref("LogResponse")
 
     u_clip = make_uuid(s, "clip")
@@ -650,9 +700,7 @@ def build_quick_log_meal() -> dict[str, Any]:
     r_clip2_txt = action_output_ref(u_clip2_txt, "Text")
 
     actions: list[dict[str, Any]] = [
-        act_comment("桌面一键记一餐：优先支持直接识别剪贴板中复制的菜名/外卖文字或截图，也支持粘贴编辑、拍照与相册选图，调用 DeepSeek / 识图估算热量与营养并写入 Apple 健康。"),
-        act_text(u_url, "https://你的服务器地址"),
-        act_text(u_tok, "在此填入个人同步Token"),
+        *header_actions,
         action("is.workflow.actions.choosefrommenu", {
             "GroupingIdentifier": g_mode,
             "WFControlFlowMode": 0,
