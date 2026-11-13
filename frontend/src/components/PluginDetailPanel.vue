@@ -9,9 +9,10 @@ import SubscriptionsPanel from './SubscriptionsPanel.vue';
 import ScheduledChatPanel from './ScheduledChatPanel.vue';
 import GameCalendarPanel from './GameCalendarPanel.vue';
 import FunPluginPanel from './FunPluginPanel.vue';
+import HealthPlannerPanel from './HealthPlannerPanel.vue';
 const c = inject(consoleKey), heading = ref(null);
 const records = computed(() => c.state.pluginDetail === 'checkin' && c.state.checkinView === 'records');
-const title = computed(() => records.value ? '成员签到记录' : ({ music: '音乐点播', links: '链接解析', checkin: '每日签到', subscriptions: '订阅推送', 'scheduled-chat': '定时聊天', 'game-calendar': '游戏兑换码与日历', fun: '群聊娱乐工坊' })[c.state.pluginDetail]);
+const title = computed(() => records.value ? '成员签到记录' : ({ music: '音乐点播', links: '链接解析', checkin: '每日签到', subscriptions: '订阅推送', 'scheduled-chat': '定时聊天', 'game-calendar': '游戏兑换码与日历', fun: '群聊娱乐工坊', 'health-planner': '健康饮食管家' })[c.state.pluginDetail]);
 watch(() => [c.state.pluginDetail, records.value], async () => {
   await nextTick(); heading.value?.focus({ preventScroll: true });
 }, { immediate: true });
@@ -28,6 +29,7 @@ watch(() => [c.state.pluginDetail, records.value], async () => {
     <MusicPanel v-else-if="c.state.pluginDetail === 'music'" />
     <GameCalendarPanel v-else-if="c.state.pluginDetail === 'game-calendar'" />
     <FunPluginPanel v-else-if="c.state.pluginDetail === 'fun'" />
+    <HealthPlannerPanel v-else-if="c.state.pluginDetail === 'health-planner'" />
     <LinksPanel v-else embedded />
   </section>
 </template>

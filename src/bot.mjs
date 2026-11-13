@@ -210,11 +210,16 @@ export class Bot {
     this.drain();
     return { accepted: true };
   }
-  async askAuxModel({ event = null, prompt = '', messages = [], purpose = 'fun_aux', maxTokens = 800, thinkingEnabled = false } = {}) {
-    const config = modelConfig(this.store.config, 'chat');
+  async askAuxModel({ event = null, prompt = '', messages = [], purpose = 'fun_aux', modelPurpose = 'chat', images = [], maxTokens = 800, thinkingEnabled = false } = {}) {
+    const config = modelConfig(this.store.config, images.length && modelPurpose === 'chat' ? 'image' : modelPurpose);
     if (!config.deepseekKey) throw new Error('未配置当前服务的 API Key');
+    if (images.length && config.modelSupportsVision === false) {
+      throw new Error('所选识图模型未开启图片输入能力，请在模型库中开启');
+    }
+    const model = config.modelProfileId ? config.model : images.length ? config.visionModel || config.model : config.model;
     const reqConfig = {
       ...config,
+      model,
       webSearchEnabled: false,
       documentGenerationEnabled: false,
       thinkingEnabled,
@@ -222,7 +227,17 @@ export class Bot {
       maxTokensUnlimited: false,
       timeoutSeconds: Math.min(config.timeoutSeconds || 60, 60)
     };
-    const request = completionRequest(reqConfig, messages, []);
+    const finalMessages = images.length ? [
+      ...messages,
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt || '请分析图片内容' },
+          ...images.map(url => ({ type: 'image_url', image_url: { url, detail: 'high' } }))
+        ]
+      }
+    ] : messages;
+    const request = completionRequest(reqConfig, finalMessages, []);
     const usageTimestamp = Date.now();
     const data = await this.request(`${reqConfig.deepseekUrl}${request.path}`, request.body, reqConfig.deepseekKey, reqConfig.timeoutSeconds, 'POST', {
       protocol: reqConfig.modelProtocol || 'chat'
@@ -280,6 +295,8 @@ export class Bot {
     if (tavern) return tavern;
     const fun = this.funCommands?.receive(event);
     if (fun) return fun;
+    const healthPlanner = this.healthPlannerCommands?.receive(event);
+    if (healthPlanner) return healthPlanner;
     const config = modelConfig(this.store.config);
     const privateChat = event.message_type === 'private';
     const rule = messageRule(config, event);

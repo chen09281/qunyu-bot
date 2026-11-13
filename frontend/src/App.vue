@@ -28,7 +28,7 @@ function navigate(page) {
   closeMenu(menuOpen.value);
 }
 watch(() => [c.state.page, c.state.authenticated], () => closeMenu());
-const pluginNames = { music: '音乐点播', links: '链接解析', checkin: '每日签到', subscriptions: '订阅推送', 'scheduled-chat': '定时聊天', 'game-calendar': '游戏兑换码与日历', fun: '群聊娱乐工坊', tavern: '酒馆 (SillyTavern)' };
+const pluginNames = { music: '音乐点播', links: '链接解析', checkin: '每日签到', subscriptions: '订阅推送', 'scheduled-chat': '定时聊天', 'game-calendar': '游戏兑换码与日历', fun: '群聊娱乐工坊', 'health-planner': '健康饮食管家', tavern: '酒馆 (SillyTavern)' };
 const navigation = ['overview', 'connection', 'model', 'tavern', 'live', 'whitelist', 'plugins', 'chats', 'logs'];
 </script>
 

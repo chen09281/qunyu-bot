@@ -39,6 +39,9 @@ import { CardRenderer } from './card-renderer.mjs';
 import { FunStore, defaultFunSettings } from './fun/store.mjs';
 import { FunService } from './fun/service.mjs';
 import { FunCommands } from './fun/commands.mjs';
+import { HealthPlannerStore } from './health-planner/store.mjs';
+import { HealthPlannerService } from './health-planner/service.mjs';
+import { HealthPlannerCommands } from './health-planner/commands.mjs';
 import { AuthAttemptGuard, quarantineCorruptFile, redactSecrets, sanitizeJsonValue, validHostHeader } from './security.mjs';
 import { createEncryptedBackup } from './backup.mjs';
 import { generateRecoveryCodes, generateTotpSecret, totpUri, verifyTotpCode } from './totp.mjs';
@@ -160,13 +163,28 @@ export async function createApplication(options = {}) {
     onebot: (...args) => bot.onebot(...args),
     log: (level, message, fields) => bot.log(level, message, fields)
   });
+  const healthPlannerStore = new HealthPlannerStore(dataDir, options.healthPlannerOptions);
+  const healthPlanner = new HealthPlannerService(healthPlannerStore, store, {
+    ...options.healthPlannerOptions,
+    cardRenderer,
+    onebot: (...args) => bot.onebot(...args),
+    log: (level, message, fields) => bot.log(level, message, fields),
+    askModel: opts => bot.askAuxModel(opts),
+    askVisionModel: opts => bot.askAuxModel({ ...opts, purpose: 'health_vision', modelPurpose: 'image' }),
+    prepareInputImages: urls => bot.prepareInputImages(urls)
+  });
+  bot.healthPlannerCommands = new HealthPlannerCommands(store, healthPlanner, {
+    ...options.healthPlannerCommandOptions,
+    onebot: (...args) => bot.onebot(...args),
+    log: (level, message, fields) => bot.log(level, message, fields)
+  });
   const bilibili = new BilibiliSession(dataDir, bot.links.cookies, { ...options.bilibiliOptions,
     onUpdate: () => bot.resetLinkCache('bilibili'), log: (level, message) => bot.log(level, message) });
   const douyin = new DouyinSession(dataDir, bot.links.cookies, { ...options.douyinOptions,
     onUpdate: () => bot.resetLinkCache('douyin'), log: (level, message) => bot.log(level, message) });
   let lastConversationPruneAt = 0;
   const gc = new ScheduledGC({ busy: () => bot.active > 0 || bot.queue.length > 0 || checkin.active.size > 0
-      || subscriptions.busy || subscriptions.previews > 0 || subscriptions.probeBusy > 0 || bilibili.busy || douyin.busy,
+      || healthPlanner.scheduled || subscriptions.busy || subscriptions.previews > 0 || subscriptions.probeBusy > 0 || bilibili.busy || douyin.busy,
     prune: () => {
       bot.pruneTransientCaches();
       const retentionDays = Number(store.config.conversationRetentionDays || 0);
@@ -222,6 +240,26 @@ export async function createApplication(options = {}) {
         }
         bot.receive(parseJSON(raw));
         return send(200, {}); // Acknowledge immediately, do not let NapCat retry slow model calls.
+      }
+      if (path.startsWith('/bridge/health/')) {
+        const ip = req.socket.remoteAddress || '';
+        limitAction(`health-bridge:${ip}`, 60);
+        const bearer = /^\s*Bearer\s+(\S+)\s*$/i.exec(req.headers.authorization || '')?.[1] || '';
+        if (path === '/bridge/health/sync' && req.method === 'POST') {
+          if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
+          const result = healthPlanner.ingestAppleHealth(bearer, parseJSON(await body(req, 64 * 1024)));
+          return send(result.status, result.body);
+        }
+        if (path === '/bridge/health/pending' && req.method === 'GET') {
+          const result = healthPlanner.pullPendingAppleNutrition(bearer);
+          return send(result.status, result.body);
+        }
+        if (path === '/bridge/health/ack' && req.method === 'POST') {
+          if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
+          const result = healthPlanner.ackPendingAppleNutrition(bearer, parseJSON(await body(req, 64 * 1024)));
+          return send(result.status, result.body);
+        }
+        throw new HttpError(404, '接口不存在');
       }
       if (path.startsWith('/api/')) {
         if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) throw new HttpError(405, '不支持的请求方法');
@@ -496,6 +534,17 @@ export async function createApplication(options = {}) {
         if (funQuoteMatch && req.method === 'DELETE') {
           if (!funStore.deleteQuote(funQuoteMatch[1])) throw new HttpError(404, '语录不存在');
           return send(200, { ok: true, quotesCount: funStore.state.quotes.length });
+        }
+        if (path === '/api/health-planner' && req.method === 'GET') {
+          return send(200, healthPlanner.status());
+        }
+        if (path === '/api/health-planner' && req.method === 'PUT') {
+          try {
+            healthPlanner.configure(parseJSON(await body(req)));
+            return send(200, healthPlanner.status());
+          } catch (error) {
+            throw new HttpError(400, error.message);
+          }
         }
         if (path === '/api/config' && req.method === 'GET') return send(200, publicConfig(store.config));
         if (path === '/api/setup-api-key' && req.method === 'POST') {
@@ -840,7 +889,7 @@ export async function createApplication(options = {}) {
       }
       // 后台是 hash 路由的单页应用：刷新 /index.html 或不带扩展名的地址（如 /chats）时返回入口页，
       // 而不是 JSON 格式的 404，避免页面直接显示 {"error":"页面不存在"}。
-      if (req.method === 'GET' && !path.startsWith('/onebot/') && (path === '/' || path === '/index.html' || !extname(path))) {
+      if (req.method === 'GET' && !path.startsWith('/onebot/') && !path.startsWith('/bridge/') && (path === '/' || path === '/index.html' || !extname(path))) {
         const file = join(root, 'dist', 'index.html');
         if (!existsSync(file)) throw new HttpError(503, '请先运行 npm run build 构建 Vue 后台');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(readFileSync(file)); return;
@@ -856,12 +905,13 @@ export async function createApplication(options = {}) {
   if (options.bilibiliAutoStart !== false) server.once('listening', () => bilibili.start());
   if (options.douyinAutoStart !== false) server.once('listening', () => douyin.start());
   if (options.checkinAutoStart !== false) server.once('listening', () => checkin.start());
+  if (options.healthPlannerAutoStart !== false) server.once('listening', () => healthPlanner.start());
   if (options.subscriptionAutoStart !== false) server.once('listening', () => subscriptions.start());
   if (options.scheduledChatAutoStart !== false) server.once('listening', () => bot.scheduledChat.start());
   if (options.serverStatusAutoStart !== false) server.once('listening', () => resources.start());
   if (options.operationsAutoStart !== false) server.once('listening', () => operations.start());
-  server.on('close', () => { emailAlerts.close(); operations.close(); resources.close(); subscriptions.close(); bilibili.close(); douyin.close(); funStore.close(); bot.close(); sessions.close(); });
-  return { server, store, bot, napcat, operations, bilibili, douyin, checkin, subscriptions, health, emailAlerts, gameCalendar, tokenUsage, tavern, fun: funService, funStore, sessions, resources, dataDir, instanceId };
+  server.on('close', () => { emailAlerts.close(); operations.close(); resources.close(); subscriptions.close(); bilibili.close(); douyin.close(); funStore.close(); healthPlanner.close(); bot.close(); sessions.close(); });
+  return { server, store, bot, napcat, operations, bilibili, douyin, checkin, healthPlanner, healthPlannerStore, subscriptions, health, emailAlerts, gameCalendar, tokenUsage, tavern, fun: funService, funStore, sessions, resources, dataDir, instanceId };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

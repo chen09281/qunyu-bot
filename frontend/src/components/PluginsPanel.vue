@@ -95,6 +95,18 @@ const c = inject(consoleKey);
           <span class="toggle-label">{{ c.state.busy.funSettings ? '保存中' : c.state.fun?.settings?.enabled ? '已开启' : '已关闭' }}</span><span class="toggle-track" aria-hidden="true"><span /></span>
         </button>
       </article>
+      <article class="plugin-card" :class="{ enabled: c.state.healthPlanner?.settings?.enabled !== false }" aria-labelledby="health-planner-plugin-title">
+        <button type="button" class="plugin-open" aria-label="打开健康饮食管家设置" @click="c.navigate('plugins/health-planner')">
+          <span class="plugin-icon" aria-hidden="true"><WorkspaceIcon name="healthPlanner" /></span>
+          <span id="health-planner-plugin-title" class="plugin-title">健康饮食管家</span>
+          <span class="plugin-description">录入健康档案算出每日热量与蛋白质配额，拆分为早/中/晚具体食物克重并定时推送，支持拍照记一餐与 Apple 健康同步。</span>
+          <span class="plugin-tags"><span>/健康 录入</span><span>早中晚方案</span><span>Apple 健康同步</span></span>
+          <span class="plugin-footer"><span>{{ c.state.healthPlanner?.settings?.enabled !== false ? `已开启 · ${c.state.healthPlanner?.stats?.userCount ?? 0} 位档案` : '已关闭 · 等待开启' }}</span><span class="plugin-more">详细设置 ↗</span></span>
+        </button>
+        <button type="button" class="plugin-toggle" role="switch" :aria-checked="Boolean(c.state.healthPlanner?.settings?.enabled)" aria-label="健康饮食管家开关" :disabled="!c.state.healthPlanner || c.state.busy.healthPlannerSettings" @click="c.saveHealthPlannerSettings(true)">
+          <span class="toggle-label">{{ c.state.busy.healthPlannerSettings ? '保存中' : c.state.healthPlanner?.settings?.enabled ? '已开启' : '已关闭' }}</span><span class="toggle-track" aria-hidden="true"><span /></span>
+        </button>
+      </article>
     </div>
     <p class="plugin-note">插件遵循群聊白名单。暂停机器人时，链接解析、每日签到、订阅推送、音乐点播与定时聊天都会暂停。</p>
   </section>

@@ -47,6 +47,7 @@ export function useConsole() {
     subscriptions: null, subscriptionSettings: null, subscriptionConflict: false, subscriptionError: '', subscriptionDraft: newSubscription(), subscriptionEditId: '', subscriptionPreview: null,
     gameCalendar: null, gameCalendarSettings: null, gameCalendarError: '',
     fun: null, funSettings: null, funError: '', funQuotes: [], funQuotesLoading: false,
+    healthPlanner: null, healthPlannerSettings: null, healthPlannerError: '',
     linkCookiePlatform: 'bilibili', linkCookieContent: '', linkCookieError: '',
     bilibili: null, bilibiliQr: null, bilibiliError: '',
     douyin: null, douyinQr: null, douyinError: '',
@@ -58,7 +59,7 @@ export function useConsole() {
   let pollTimer, liveTimer, toastTimer, refreshing = false, generation = 0, disposed = false, napcatLoading = false, napcatGeneration = 0, confirmationResolve = null;
   let liveRevision = 0, liveRequestId = 0, liveInFlight = false, configRevision = 0, configWrites = 0, subscriptionEditRevision = 0, previewRevision = 0, healthGeneration = 0, healthLastLoad = 0;
   let detailGeneration = 0;
-  const settingsRevision = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0 }, settingsWrites = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0 };
+  const settingsRevision = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0, 'health-planner': 0 }, settingsWrites = { checkin: 0, subscriptions: 0, 'game-calendar': 0, fun: 0, 'health-planner': 0 };
   let chatListGeneration = 0, chatGeneration = 0;
 
   function notify(message, error = false) {
@@ -97,6 +98,7 @@ export function useConsole() {
     state.subscriptions = null; state.subscriptionSettings = null; state.subscriptionConflict = false; state.subscriptionError = ''; state.subscriptionDraft = newSubscription(); state.subscriptionEditId = ''; state.subscriptionPreview = null; subscriptionEditRevision++; previewRevision++;
     state.gameCalendar = null; state.gameCalendarSettings = null; state.gameCalendarError = '';
     state.fun = null; state.funSettings = null; state.funError = ''; state.funQuotes = []; state.funQuotesLoading = false;
+    state.healthPlanner = null; state.healthPlannerSettings = null; state.healthPlannerError = '';
     state.linkCookieContent = ''; state.linkCookieError = ''; state.linkCookiePlatform = 'bilibili';
     state.bilibili = null; state.bilibiliQr = null; state.bilibiliError = '';
     state.douyin = null; state.douyinQr = null; state.douyinError = '';
@@ -360,9 +362,10 @@ export function useConsole() {
     const music = page === 'plugins/music';
     const gameCalendar = page === 'plugins/game-calendar';
     const fun = page === 'plugins/fun';
+    const healthPlanner = page === 'plugins/health-planner';
     if (state.pluginDetail === 'subscriptions' && !subscriptions) closeSubscriptionPreview();
-    if (links || checkin || subscriptions || scheduledChat || music || gameCalendar || fun) page = 'plugins';
-    state.pluginDetail = links ? 'links' : checkin ? 'checkin' : subscriptions ? 'subscriptions' : scheduledChat ? 'scheduled-chat' : music ? 'music' : gameCalendar ? 'game-calendar' : fun ? 'fun' : '';
+    if (links || checkin || subscriptions || scheduledChat || music || gameCalendar || fun || healthPlanner) page = 'plugins';
+    state.pluginDetail = links ? 'links' : checkin ? 'checkin' : subscriptions ? 'subscriptions' : scheduledChat ? 'scheduled-chat' : music ? 'music' : gameCalendar ? 'game-calendar' : fun ? 'fun' : healthPlanner ? 'health-planner' : '';
     state.checkinView = records ? 'records' : 'settings';
     state.page = Object.hasOwn(pageNames, page) ? page : 'overview';
     const hash = `#${state.page}${state.page === 'whitelist' ? '/' + state.whitelistTab : ''}${state.pluginDetail ? `/${state.pluginDetail}` : ''}${records ? '/records' : ''}`;
@@ -379,6 +382,7 @@ export function useConsole() {
       void loadSubscriptions();
       void loadGameCalendar();
       void loadFun();
+      void loadHealthPlanner();
     }
   }
   function syncHash() { navigate(location.hash.slice(1), { replace: true }); }
@@ -464,6 +468,7 @@ export function useConsole() {
       if (state.page === 'plugins' && state.pluginDetail === 'checkin' && !state.busy.checkin) void loadCheckin();
       if (state.page === 'plugins' && state.pluginDetail === 'game-calendar' && !state.busy.gameCalendarSettings && !state.busy.gameCalendarEdit && !state.busy.gameCalendarSync) void loadGameCalendar();
       if (state.page === 'plugins' && state.pluginDetail === 'fun' && !state.busy.funSettings && !state.busy.funQuoteDelete) void loadFun();
+      if (state.page === 'plugins' && state.pluginDetail === 'health-planner' && !state.busy.healthPlannerSettings) void loadHealthPlanner();
       // Keep form drafts independent from polling, so unsaved edits are never overwritten.
     } catch (error) { if (version === generation) state.refreshMessage = error.message; }
     finally { refreshing = false; schedule(); }
@@ -1087,6 +1092,52 @@ export function useConsole() {
       notify('已删除该条语录');
     });
   };
+  const loadHealthPlanner = () => run('healthPlannerStatus', async () => {
+    const version = generation, revision = settingsRevision['health-planner'];
+    try {
+      const data = await api('health-planner');
+      if (version !== generation || disposed || revision !== settingsRevision['health-planner'] || settingsWrites['health-planner']) return;
+      const nextSettings = {
+        enabled: true,
+        renderCard: true,
+        aiMenuEnhance: true,
+        aiFoodVision: true,
+        ...(data?.settings || {}),
+        pushSlots: {
+          morningOverview: '07:30',
+          breakfast: '',
+          lunch: '11:30',
+          dinner: '17:30',
+          ...(data?.settings?.pushSlots || {})
+        }
+      };
+      state.healthPlannerSettings = state.healthPlannerSettings && state.healthPlanner?.settings
+        ? mergeDraft(state.healthPlannerSettings, state.healthPlanner.settings, nextSettings)
+        : copyDraft(nextSettings);
+      state.healthPlanner = { ...data, settings: nextSettings };
+      state.healthPlannerError = '';
+    } catch (error) {
+      if (version === generation && !disposed) state.healthPlannerError = error.message;
+    }
+  });
+  const saveHealthPlannerSettings = (toggleOnly = false) => run('healthPlannerSettings', async () => {
+    if (!state.healthPlanner) return;
+    const version = generation;
+    settingsRevision['health-planner'] += 1;
+    settingsWrites['health-planner'] += 1;
+    const submitted = copyDraft(state.healthPlannerSettings);
+    const input = toggleOnly === true ? { enabled: !state.healthPlanner.settings.enabled } : submitted;
+    try {
+      const data = await api('health-planner', { method: 'PUT', body: JSON.stringify(input) });
+      if (version !== generation || disposed) return;
+      state.healthPlanner = data; state.healthPlannerError = '';
+      if (toggleOnly === true) state.healthPlannerSettings.enabled = mergeDraft(state.healthPlannerSettings.enabled, submitted.enabled, data.settings.enabled);
+      else state.healthPlannerSettings = mergeDraft(state.healthPlannerSettings, submitted, data.settings);
+      notify('健康饮食插件设置已保存');
+    } finally {
+      settingsWrites['health-planner'] = Math.max(0, settingsWrites['health-planner'] - 1);
+    }
+  });
   onUnmounted(() => { disposed = true; generation++; resolveConfirmation(false); clearTimeout(pollTimer); clearTimeout(liveTimer); clearTimeout(toastTimer); window.removeEventListener('hashchange', syncHash); window.removeEventListener('popstate', syncHash); });
 
   return reactive({
@@ -1103,6 +1154,7 @@ export function useConsole() {
     loadSubscriptions, saveSubscriptionSettings, editSubscription, saveSubscription, subscriptionAction, toggleSubscription, removeSubscriptionGroup,
     loadGameCalendar, saveGameCalendarSettings, saveGameRedeemCode, removeGameRedeemCode, saveGameActivity, removeGameActivity, syncGameCalendar,
     loadFun, saveFunSettings, loadFunQuotes, deleteFunQuote,
+    loadHealthPlanner, saveHealthPlannerSettings,
     loadCheckin, saveCheckin,
     saveLinkCookie, removeLinkCookie, clearCookieDraft,
     loadConversations, searchConversations, selectConversation, loadConversation, resetConversation, deleteConversation, pruneConversations,
