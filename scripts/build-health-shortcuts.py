@@ -161,10 +161,7 @@ def act_find_health(
             "Operator": 1002,
             "Property": "Start Date",
             "Removable": False,
-            "Values": {
-                "Number": "7",
-                "Unit": 16,
-            },
+            "Values": {},
         })
     params: dict[str, Any] = {
         "UUID": uid,
@@ -275,7 +272,7 @@ def act_replace_text(
         "WFReplaceTextReplace": replace,
         "WFReplaceTextCaseSensitive": False,
         "WFReplaceTextRegularExpression": regex,
-        "WFInput": token_attachment(input_ref),
+        "WFInput": token_string([input_ref]),
     })
 
 
@@ -426,14 +423,47 @@ def wrap_workflow(
     }
 
 
+def build_health_metric_block(
+    scope: str,
+    key: str,
+    sample_type: str,
+    var_name: str,
+    *,
+    fallback_text: str,
+    aggregate_sum: bool,
+    today_only: bool,
+    latest_one: bool = False,
+) -> list[dict[str, Any]]:
+    """Query Apple Health safely, guarding empty sample lists before Value/Statistics."""
+    u_find = make_uuid(scope, f"{key}_find")
+    u_cnt = make_uuid(scope, f"{key}_cnt")
+    g_has = make_uuid(scope, f"{key}_if")
+    u_val = make_uuid(scope, f"{key}_val")
+    u_sum = make_uuid(scope, f"{key}_sum")
+    u_fallback = make_uuid(scope, f"{key}_fallback")
+
+    actions: list[dict[str, Any]] = [
+        act_find_health(u_find, sample_type, today_only=today_only, latest_one=latest_one),
+        act_count(u_cnt, action_output_ref(u_find, "Health Samples")),
+        act_if_gt(g_has, action_output_ref(u_cnt, "Count"), "0"),
+        act_health_detail(u_val, "Value", action_output_ref(u_find, "Health Samples")),
+    ]
+    if aggregate_sum:
+        actions.append(act_statistics_sum(u_sum, action_output_ref(u_val, "Value")))
+        actions.append(act_set_variable(var_name, action_output_ref(u_sum, "Statistics")))
+    else:
+        actions.append(act_set_variable(var_name, action_output_ref(u_val, "Value")))
+    actions.extend([
+        act_otherwise(g_has),
+        act_text(u_fallback, fallback_text),
+        act_set_variable(var_name, action_output_ref(u_fallback, "Text")),
+        act_end_if(g_has),
+    ])
+    return actions
+
+
 def build_sync_apple_to_bot() -> dict[str, Any]:
     s = "sync-apple-to-bot"
-    u_steps_find = make_uuid(s, "steps_find")
-    u_steps_sum = make_uuid(s, "steps_sum")
-    u_active_find = make_uuid(s, "active_find")
-    u_active_sum = make_uuid(s, "active_sum")
-    u_weight_find = make_uuid(s, "weight_find")
-    u_weight_val = make_uuid(s, "weight_val")
     u_http = make_uuid(s, "http")
     u_dict = make_uuid(s, "dict")
     u_day = make_uuid(s, "day")
@@ -443,21 +473,43 @@ def build_sync_apple_to_bot() -> dict[str, Any]:
         s,
         "同步今日 Apple 健康步数、活动能量和最新体重到 QQ Bot，用于动态修正每日目标热量。",
     )
-    r_steps = action_output_ref(u_steps_sum, "Statistics")
-    r_active = action_output_ref(u_active_sum, "Statistics")
-    r_weight = action_output_ref(u_weight_val, "Value")
+    r_steps = variable_ref("StepsTotal")
+    r_active = variable_ref("ActiveTotal")
+    r_weight = variable_ref("LatestWeight")
     r_http = action_output_ref(u_http, "Contents of URL")
     r_dict = action_output_ref(u_dict, "Dictionary")
     r_day = action_output_ref(u_day, "Dictionary Value")
 
     actions = [
         *header_actions,
-        act_find_health(u_steps_find, "Steps", today_only=True),
-        act_statistics_sum(u_steps_sum, action_output_ref(u_steps_find, "Health Samples")),
-        act_find_health(u_active_find, "Active Calories", today_only=True),
-        act_statistics_sum(u_active_sum, action_output_ref(u_active_find, "Health Samples")),
-        act_find_health(u_weight_find, "Weight", today_only=False, latest_one=True),
-        act_health_detail(u_weight_val, "Value", action_output_ref(u_weight_find, "Health Samples")),
+        *build_health_metric_block(
+            s,
+            "steps",
+            "Steps",
+            "StepsTotal",
+            fallback_text="0",
+            aggregate_sum=True,
+            today_only=True,
+        ),
+        *build_health_metric_block(
+            s,
+            "active",
+            "Active Energy",
+            "ActiveTotal",
+            fallback_text="0",
+            aggregate_sum=True,
+            today_only=True,
+        ),
+        *build_health_metric_block(
+            s,
+            "weight",
+            "Weight",
+            "LatestWeight",
+            fallback_text="",
+            aggregate_sum=False,
+            today_only=False,
+            latest_one=True,
+        ),
         act_http_json(
             u_http,
             "POST",
