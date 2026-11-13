@@ -6,7 +6,7 @@ export const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..'
 const commonFiles = ['src', 'frontend', 'test', 'scripts', 'package.json', 'package-lock.json',
   'vite.config.mjs', 'Dockerfile', 'requirements-parser.txt', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md', 'README.md',
   '.dockerignore', '.gitignore', '.env.example', '.env.ubuntu.example', 'compose.yaml', 'compose.integrated.yaml', 'compose.ubuntu.yaml', 'compose.rsshub.yaml', 'ubuntu.sh'];
-const deliveryDocs = ['UBUNTU.md', 'RUNBOOK.md', 'checkin.md', 'subscriptions.md', 'rsshub-maintenance.md', 'delivery'];
+const deliveryDocs = ['UBUNTU.md', 'RUNBOOK.md', 'checkin.md', 'subscriptions.md', 'tavern.md', 'rsshub-maintenance.md', 'delivery'];
 
 function copyFiltered(source, destination) {
   const filter = item => {

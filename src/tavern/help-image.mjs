@@ -1,6 +1,6 @@
 import { HelpImage } from '../help-image.mjs';
 
-export const tavernHelpImageSize = { width: 1080, height: 2400 };
+export const tavernHelpImageSize = { width: 1080, height: 2440 };
 
 export class TavernHelpImage extends HelpImage {
   constructor(options = {}) {

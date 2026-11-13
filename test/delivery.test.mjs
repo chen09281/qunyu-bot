@@ -30,6 +30,7 @@ for line in (folder/'SHA256SUMS').read_text().splitlines():
   assert.equal(inspect.status,0,inspect.stdout+inspect.stderr);
   const appDir=join(folder,'应用');assert.equal(existsSync(join(appDir,'node_modules')),false);assert.equal(existsSync(join(appDir,'dist/index.html')),true);
   assert.equal(existsSync(join(appDir,'docs/subscriptions.md')),true);
+  assert.equal(existsSync(join(appDir,'docs/tavern.md')),true);
   const code=`import {createApplication} from './src/server.mjs';
 const app=await createApplication({dataDir:process.env.DELIVERY_TEST_DATA,initialPassword:'',bilibiliAutoStart:false});
 try{await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+app.server.address().port;

@@ -2,6 +2,14 @@
 
 ## 未发布 · 2026-11-13
 
+- **酒馆文档与群内帮助体系重构**：
+  - 新增完整管理员与进阶手册 [docs/tavern.md](docs/tavern.md)，系统说明 PNG / JSON（SillyTavern V2）角色卡导入导出、世界书（Lorebook）触发与预算、好感度与 6 维情绪系统、「全群共享 / 群内个人独立」模式选择、分角色定时问候及常见问题排查，并将该文档纳入交付包发布清单（`scripts/release-files.mjs`）。
+  - 重写 `/酒馆 文档` 对应的群聊指南 `src/tavern/usage-guide.md`，涵盖 5 分钟上手、角色切换/绑定/隔离机制、`/ooc` 导演指令、`/retry` 与 `/undo` 时光倒流、`/投喂` 与 `/剧场` 玩法及典型报错应对，优化 PDF 分页排版。
+  - 重制 `/酒馆 帮助` 高清长图海报（`src/tavern/help.html`、`src/tavern/help-image.mjs`），画幅调整为 `1080 × 2440`，补全 `/情绪`、`/羁绊榜`、`/投喂`、`/剧场` 与 `/酒馆 文档` 完整指令矩阵，并同步更新 `README.md`、`docs/help-visuals.md` 与对应单元测试。
+- **开源发布准备、隐私脱敏与 README 完善**：
+  - 完善开源版 [README.md](README.md)，补充完整系统架构、功能插件矩阵、快速开始、环境变量说明、Docker 部署与合规使用说明。
+  - 新增 `npm run export:opensource`（`scripts/export-opensource.mjs` 与 `scripts/release-files.mjs` 的 `copyOpenSourceTree`），支持生成不含私有提交历史与内部流程文档的单提交纯净源码快照，并自动校验不得残留服务器 IP、本机/服务器个人路径、密钥或 Token。
+  - 完成全仓隐私与标识清理：将运维文档（`docs/GIT-WORKFLOW.md`、`docs/checkin.md`、`docs/rsshub-maintenance.md`、`docs/subscriptions.md`、`docs/delivery/02-运行维护与问题排查.md`）、签到绑定指南及脚本（`scripts/rsshub-cookie-sync.py`、`scripts/vps-disk-guard.sh`、`compose.rsshub.yaml`）中的公网地址与个人路径改为通用占位符或环境变量配置，清理测试样例中的个人昵称与私有标识并补充自动化回归测试。
 - **核心可靠性与酒馆缺陷修复**：
   - 修复酒馆模式关闭时 `/酒馆`、`/char`、`/undo` 等无斜杠前缀指令仍截获正常群聊或私聊消息的问题，统一要求 `/` 或 `#` 前缀。
   - 修复 `/ooc` 临时导演指令、`/retry`（同步回滚情绪并重新提交真实上下文）、多成员切换 `/char switch` 群内历史隔离、表情贴纸跨角色遗留文件与头像/贴纸原子写问题。

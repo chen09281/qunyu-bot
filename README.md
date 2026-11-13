@@ -29,7 +29,7 @@
 | **多模型 AI 对话与记忆** | 支持 DeepSeek 与任意 OpenAI 兼容服务商（多配置库切换、冷却、Token 预算、超时无上限开关）；按机器人、群聊、成员及白名单私聊隔离会话记忆 | [docs/openai-api.md](docs/openai-api.md)、[docs/model-library.md](docs/model-library.md)、[docs/private-chat.md](docs/private-chat.md) |
 | **图片细节识图与找图** | QQ 图片优先获取原图并对大截图自动无损分片送入识图模型；支持联网搜索正文并抓取过滤后原图发回群聊 | [docs/images.md](docs/images.md)、[docs/music-and-web-search.md](docs/music-and-web-search.md) |
 | **文档生成与实时工作空间** | 通过工具调用生成 Word (`.docx`)、PDF、Markdown、TXT 群文件或私聊文件；后台「实时任务」每秒流式查看排队状态与思考过程 | [docs/live-workspace.md](docs/live-workspace.md)、`src/documents.mjs`、`src/document-worker.py` |
-| **可选人设与酒馆角色羁绊** | 支持内置二次元人设或导入 SillyTavern PNG/JSON V2 角色卡（含世界书/正则/表情贴纸）；支持全群共享或个人独立好感度、`/情绪` 雷达图卡片、`/羁绊榜`、`/投喂`、`/剧场`、`/ooc`、`/retry` 与分群绑定 | [docs/ds-persona.md](docs/ds-persona.md)、[docs/aemeath-persona.md](docs/aemeath-persona.md)、`src/tavern/` |
+| **可选人设与酒馆角色羁绊** | 支持内置二次元人设或导入 SillyTavern PNG/JSON 角色卡（含世界书、宏替换与情绪触发贴纸）；支持全群共享或个人独立好感度、`/情绪` 雷达图卡片、`/羁绊榜`、`/投喂`、`/剧场`、`/ooc`、`/retry` 与分群绑定 | [docs/ds-persona.md](docs/ds-persona.md)、[docs/aemeath-persona.md](docs/aemeath-persona.md)、[docs/tavern.md](docs/tavern.md)、[src/tavern/usage-guide.md](src/tavern/usage-guide.md) |
 | **群聊娱乐工坊** | 内置 `/玩法` 速查、`/今日运势`、`/喜报`/`/悲报`/`/举牌`/`/加字` 梗图、`/存语录`/`/语录` 名场面海报、`/群日报`（仅记录 7 天匿名频次）、`/十连`/`/欧非榜` 抽卡、`.r`/`.ra`/`.rh` TRPG 骰娘、`/海龟汤` 与 `/卧底` 桌游，子功能可逐项开关 | `src/fun/`、`src/card-renderer.mjs` |
 | **社交链接自动解析** | 无需 `@` 自动识别 B 站视频/动态、抖音图文/视频、小红书、微博、X / Twitter 等链接，离线字体渲染高清信息卡并回传原图/视频（含 X `socks5://` 代理与 DNS 防护） | `src/social-links.mjs`、`src/link-worker.py` |
 | **B 站总结与点歌** | `@ 机器人 + 视频链接/BV 号` 汇总简介、评论、字幕及低清视频抽帧联系表送交识图总结；`/点歌` 支持 30 秒高潮试听/完整版与自定义音频目录（AAC 192k 转码） | `src/music.mjs`、`src/music-catalog.mjs`、[docs/music-and-web-search.md](docs/music-and-web-search.md) |
@@ -231,5 +231,5 @@ npm run export:opensource
 | --- | --- |
 | **部署与交付指南** | [交付总览](docs/delivery/README.md) ｜ [首次配置](docs/delivery/01-部署与首次配置.md) ｜ [运行维护排查](docs/delivery/02-运行维护与问题排查.md) ｜ [交付验收清单](docs/delivery/03-交付清单与验收.md) ｜ [Ubuntu 部署细节](docs/UBUNTU.md) ｜ [通用运维手册](docs/RUNBOOK.md) |
 | **模型与回复能力** | [人设与聊天方式](docs/ds-persona.md) ｜ [OpenAI 兼容接入](docs/openai-api.md) ｜ [模型配置库](docs/model-library.md) ｜ [私聊与白名单](docs/private-chat.md) ｜ [图片细节识图](docs/images.md) ｜ [实时工作空间](docs/live-workspace.md) |
-| **功能插件指南** | [订阅推送使用说明](docs/subscriptions.md) ｜ [RSSHub 维护指南](docs/rsshub-maintenance.md) ｜ [每日签到使用说明](docs/checkin.md) ｜ [Android Token 工具](docs/android-token-tool.md) ｜ [点歌与搜索说明](docs/music-and-web-search.md) |
+| **功能插件指南** | [酒馆角色扮演说明](docs/tavern.md) ｜ [订阅推送使用说明](docs/subscriptions.md) ｜ [RSSHub 维护指南](docs/rsshub-maintenance.md) ｜ [每日签到使用说明](docs/checkin.md) ｜ [Android Token 工具](docs/android-token-tool.md) ｜ [点歌与搜索说明](docs/music-and-web-search.md) |
 | **账单、监控与版本** | [Token 账单与校准](docs/token-usage-and-pricing.md) ｜ [服务器状态与 GC](docs/server-resources.md) ｜ [变更日志](CHANGELOG.md) ｜ [第三方许可证清单](THIRD_PARTY_NOTICES.md) |

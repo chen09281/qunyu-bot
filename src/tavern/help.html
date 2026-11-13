@@ -6,14 +6,14 @@
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;width:1080px;color:#283751;font-family:"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
-body{font-size:26px;line-height:1.6;background:#f5f7fc}
+body{font-size:25px;line-height:1.58;background:#f5f7fc}
 h1,h2,h3,p{margin:0}
 .poster{
-  height:2400px;
-  padding:48px 50px 40px;
+  height:2440px;
+  padding:42px 48px 34px;
   display:flex;
   flex-direction:column;
-  gap:24px;
+  gap:19px;
   position:relative;
   overflow:hidden;
   background:
@@ -26,7 +26,7 @@ h1,h2,h3,p{margin:0}
 }
 .poster::before{content:"";position:absolute;inset:18px;border:2px solid #fff;border-radius:34px;pointer-events:none}
 .poster>*{flex-shrink:0}
-header{padding:10px 12px 4px;position:relative}
+header{padding:8px 12px 2px;position:relative}
 .eyebrow{
   display:inline-block;
   font-size:20px;
@@ -38,44 +38,45 @@ header{padding:10px 12px 4px;position:relative}
   border-radius:100px;
   padding:6px 16px;
 }
-h1{font-size:72px;line-height:1.18;letter-spacing:2px;font-weight:800;color:#283751;margin-top:18px}
-.subtitle{font-size:27px;color:#5a6b87;margin-top:14px;line-height:1.65}
-.subtitle b{font-size:23px;font-weight:500;color:#73839e}
+h1{font-size:68px;line-height:1.15;letter-spacing:2px;font-weight:800;color:#283751;margin-top:16px}
+.subtitle{font-size:26px;color:#5a6b87;margin-top:12px;line-height:1.6}
+.subtitle b{font-size:22px;font-weight:600;color:#4f6180}
 .badge-pill{
   position:absolute;
   right:14px;
-  top:18px;
+  top:14px;
   background:linear-gradient(135deg,#eef3ff,#f2ecfc);
   border:2px solid #fff;
   border-radius:24px;
-  padding:18px 24px;
+  padding:16px 24px;
   text-align:center;
   box-shadow:0 8px 24px #3e5d9514;
 }
-.badge-pill strong{display:block;font-size:32px;color:#4669ac;letter-spacing:1px}
-.badge-pill span{display:block;font-size:20px;color:#7868a8;margin-top:4px}
+.badge-pill strong{display:block;font-size:30px;color:#4669ac;letter-spacing:1px}
+.badge-pill span{display:block;font-size:19px;color:#7868a8;margin-top:4px}
 
-h2{font-size:32px;line-height:1.4;font-weight:750;color:#283751}
+h2{font-size:31px;line-height:1.38;font-weight:750;color:#283751}
 .panel{
   border:2px solid #fff;
-  border-radius:28px;
+  border-radius:26px;
   background:#fffffff5;
-  padding:26px 30px;
+  padding:24px 28px;
   box-shadow:0 6px 20px #3e5d950d;
 }
 .number{
   font-size:22px;
   display:inline-grid;
   place-items:center;
-  width:48px;
-  height:42px;
-  border-radius:13px;
+  width:46px;
+  height:40px;
+  border-radius:12px;
   background:#e9effc;
   color:#4669ac;
   vertical-align:2px;
-  margin-right:14px;
+  margin-right:13px;
   font-weight:800;
 }
+.number-pink{background:#fce7f3;color:#be185d}
 .command{
   font-family:"Noto Sans Mono CJK SC","Noto Sans CJK SC","PingFang SC",sans-serif;
   color:#3c5d9b;
@@ -83,26 +84,36 @@ h2{font-size:32px;line-height:1.4;font-weight:750;color:#283751}
   white-space:nowrap;
 }
 .primary-command{
-  margin:18px 0 12px;
+  margin:16px 0 10px;
   background:#eef3fc;
   border:1px solid #d5e1f5;
-  border-radius:15px;
-  padding:16px 22px;
-  font-size:40px;
+  border-radius:14px;
+  padding:14px 20px;
+  font-size:38px;
 }
-.muted{color:#65738b;font-size:24px;line-height:1.7}
+.muted{color:#65738b;font-size:23px;line-height:1.65}
 
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
 .cmd-card{
   background:#f7f9fe;
   border:1px solid #e2e8f5;
-  border-radius:18px;
-  padding:20px 22px;
+  border-radius:17px;
+  padding:18px 20px;
 }
-.cmd-card .command{font-size:28px;display:block;margin-bottom:8px}
-.cmd-card p{font-size:23px;color:#627189;line-height:1.6}
+.cmd-card .command{font-size:26px;display:block;margin-bottom:7px}
+.cmd-card p{font-size:22px;color:#627189;line-height:1.55}
 
-.cmd-list{display:grid;gap:14px;margin-top:18px}
+.bond-card{
+  background:#fdf7fb;
+  border:1px solid #f4dceb;
+  border-top:4px solid #db2777;
+  border-radius:17px;
+  padding:18px 20px;
+}
+.bond-card .command{font-size:26px;color:#9d174d;display:block;margin-bottom:7px}
+.bond-card p{font-size:22px;color:#6b5868;line-height:1.55}
+
+.cmd-list{display:grid;gap:12px;margin-top:16px}
 .cmd-row{
   display:flex;
   align-items:center;
@@ -110,62 +121,62 @@ h2{font-size:32px;line-height:1.4;font-weight:750;color:#283751}
   background:#f8f6fd;
   border:1px solid #e8e0f7;
   border-left:6px solid #8570ba;
-  border-radius:16px;
-  padding:16px 22px;
+  border-radius:15px;
+  padding:14px 20px;
 }
-.cmd-row .command{font-size:27px;color:#664fa2;min-width:290px}
-.cmd-row span{font-size:23px;color:#5f6982;line-height:1.55}
+.cmd-row .command{font-size:25px;color:#664fa2;min-width:244px}
+.cmd-row span{font-size:22px;color:#5f6982;line-height:1.5}
 
 .scope{
   background:linear-gradient(120deg,#eaf5f0,#eff7f4);
   border-color:#fff;
-  padding:24px 30px;
+  padding:22px 28px;
 }
 .scope .scope-label{
   display:inline-block;
-  font-size:19px;
+  font-size:18px;
   font-weight:700;
   letter-spacing:2px;
   background:#d5ece2;
   color:#2e6b5b;
   padding:4px 14px;
   border-radius:100px;
-  margin-bottom:10px;
+  margin-bottom:8px;
 }
-.scope h2{font-size:31px;color:#28584b}
-.scope p{font-size:24px;color:#4a7367;margin-top:10px;line-height:1.65}
+.scope h2{font-size:30px;color:#28584b}
+.scope p{font-size:23px;color:#4a7367;margin-top:8px;line-height:1.6}
 
 .notice{
   border-left:5px solid #8570ba;
   border-radius:3px;
-  padding:4px 20px;
-  font-size:23px;
-  line-height:1.7;
+  padding:4px 18px;
+  font-size:22px;
+  line-height:1.65;
   color:#60597a;
-  margin:0 6px;
+  margin:0 4px;
 }
 
 .document{
   margin-top:auto;
   background:linear-gradient(115deg,#e9f0ff,#f2ecfc 65%,#eaf5f1);
   border:2px solid #fff;
-  border-radius:28px;
-  padding:28px 32px;
+  border-radius:26px;
+  padding:26px 30px;
   display:flex;
   justify-content:space-between;
   align-items:center;
-  gap:24px;
+  gap:22px;
 }
-.document h2{font-size:31px;color:#2d4675}
-.document p{font-size:24px;color:#5a6b88;margin-top:8px;line-height:1.6}
+.document h2{font-size:30px;color:#2d4675}
+.document p{font-size:23px;color:#5a6b88;margin-top:7px;line-height:1.55}
 .document .command{
   display:inline-block;
-  font-size:38px;
+  font-size:36px;
   color:#385891;
   background:#ffffffeb;
   border:1px solid #d0dcf2;
-  border-radius:16px;
-  padding:14px 28px;
+  border-radius:15px;
+  padding:13px 26px;
   box-shadow:0 4px 14px #3e5d9512;
 }
 .ending{
@@ -174,33 +185,33 @@ h2{font-size:32px;line-height:1.4;font-weight:750;color:#283751}
   font-size:18px;
   letter-spacing:1px;
   color:#7e8ba3;
-  padding:0 7px;
-  margin-top:-8px;
+  padding:0 6px;
+  margin-top:-6px;
 }
 </style>
 <main class="poster">
   <header>
-    <div class="eyebrow">SILLYTAVERN · 角色扮演指南</div>
+    <div class="eyebrow">SILLYTAVERN · 角色扮演与情绪羁绊指南</div>
     <h1>酒馆帮助</h1>
-    <p class="subtitle">导入 PNG / JSON 角色卡与世界书<br><b>在 QQ 群聊与私聊中开启沉浸式角色对话</b></p>
+    <p class="subtitle">导入 PNG / JSON 角色卡与世界书 · 指令须以 / 或 # 开头<br><b>支持全群共享或个人独立好感度，停用时不拦截正常群聊</b></p>
     <div class="badge-pill">
-      <strong>V1 / V2 / V3</strong>
-      <span>角色卡 · 世界书</span>
+      <strong>PNG · JSON</strong>
+      <span>角色卡 · 世界书 · 羁绊</span>
     </div>
   </header>
 
   <section class="panel">
     <h2><span class="number">01</span>查看列表并切换角色</h2>
     <div class="command primary-command">/酒馆 切换 角色名</div>
-    <p class="muted">支持按角色名称或 ID 前缀切换，也可使用别名 <b>/char switch</b> 或 <b>/角色 切换</b>。<br>切换角色时会自动重置当前会话记忆，并发送新角色的开场白。</p>
+    <p class="muted">支持角色名称或 ID 前缀切换（别名 <b>/char switch</b>、<b>/角色 切换</b>）。<br>切换会隔离原角色历史、重置本人会话与该作用域好感并发送新开场白。</p>
     <div class="grid-2">
       <div class="cmd-card">
         <span class="command">/酒馆 列表</span>
-        <p>查看角色库全部角色卡与当前使用状态（别名 /char list）。</p>
+        <p>查看角色库列表、8 位 ID 与激活状态（别名 /char list、/角色 列表）。</p>
       </div>
       <div class="cmd-card">
         <span class="command">/酒馆 信息</span>
-        <p>查看当前角色头像、简介、性格与情景设定（别名 /char info）。</p>
+        <p>查看当前角色头像、外貌简介、性格与情景设定（别名 /char info）。</p>
       </div>
     </div>
   </section>
@@ -210,42 +221,65 @@ h2{font-size:32px;line-height:1.4;font-weight:750;color:#283751}
     <div class="cmd-list">
       <div class="cmd-row">
         <span class="command">/酒馆 重置</span>
-        <span>清空当前对话历史，并重新触发角色开场白（别名 /char reset）</span>
+        <span>清空当前记忆与情绪并重发角色开场白（别名 /char reset）</span>
       </div>
       <div class="cmd-row">
         <span class="command">/酒馆 撤回</span>
-        <span>撤回上一轮机器人的角色回复（别名 /undo、/撤回）</span>
+        <span>撤回上一轮机器人的回复并同步回滚情绪（/undo、/撤回）</span>
       </div>
       <div class="cmd-row">
         <span class="command">/酒馆 重试</span>
-        <span>撤销上一轮回复并提示原提问，再次 @机器人 即可重新生成</span>
+        <span>回滚上一轮问答与情绪并重新排队生成（/retry、/重试）</span>
       </div>
       <div class="cmd-row">
-        <span class="command">/酒馆 ooc 指令</span>
-        <span>发送场外导演指令，指导后续回复的语气或剧情走向（别名 /ooc）</span>
+        <span class="command">/ooc 导演指令</span>
+        <span>注入下轮生效的场外指示（500 字内）；发 /ooc 清除 可取消</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2><span class="number number-pink">03</span>情绪羁绊与趣味互动</h2>
+    <p class="muted">日常对话静默记录好感、愉悦、信任、紧张与抑郁五项情绪指标；达到后台触发阈值还会激活专属口癖并发送自定义表情贴纸。</p>
+    <div class="grid-2">
+      <div class="bond-card">
+        <span class="command">/情绪（/档案）</span>
+        <p>生成五维情绪雷达档案卡与关系阶段摘要（别名 /emotion、/酒馆 状态）。</p>
+      </div>
+      <div class="bond-card">
+        <span class="command">/羁绊榜（/好感榜）</span>
+        <p>查看本群好感度前 10 排行；需后台将好感度设为「群友个人独立」。</p>
+      </div>
+      <div class="bond-card">
+        <span class="command">/投喂 礼物名称</span>
+        <p>给角色送礼互动，触发专属反应、好感变化并有概率掉落表情贴纸。</p>
+      </div>
+      <div class="bond-card">
+        <span class="command">/剧场 [角色] [主题]</span>
+        <p>库中 ≥ 2 张卡即可开启 4–6 回合跨角色同台飙戏（别名 /小剧场、/theater）。</p>
       </div>
     </div>
   </section>
 
   <section class="panel scope">
-    <div class="scope-label">按群聊与私聊独立绑定</div>
-    <h2>互不干扰的角色与记忆</h2>
-    <p>每个 QQ 群和每位私聊用户都可以绑定各自喜欢的角色卡；<br>同一群内不同成员与机器人的对话记忆也相互独立，无需担心串线。</p>
+    <div class="scope-label">按群聊 / 私聊专属绑定与记忆隔离</div>
+    <h2>互不串线的沉浸式陪伴体验</h2>
+    <p>可为指定 QQ 群或私聊好友绑定专属角色，且按角色隔离聊天上下文；<br>管理员可在后台切换「全群共享 / 个人独立」好感度，配合定时问候打造完整沉浸体验。</p>
   </section>
 
-  <p class="notice">使用前需管理员在控制台「酒馆角色」中上传角色卡并开启「酒馆模式」。<br>仅在后台白名单已授权的群聊与私聊中响应指令。</p>
+  <p class="notice">使用前需管理员在控制台「插件 → 酒馆角色扮演」导入角色卡并启用酒馆模式；<br>仅在群聊与私聊白名单授权会话中响应指令（/ 与 # 前缀通用）。</p>
 
   <footer class="document">
     <div>
-      <h2>需要完整配置说明与排错指南？</h2>
-      <p>在群聊或已授权私聊发送右侧指令，领取 PDF 详细教程</p>
+      <h2>需要完整配置指南、世界书规则与排错手册？</h2>
+      <p>在群聊或已授权私聊发送右侧指令，领取 PDF 使用说明</p>
     </div>
     <div class="command">/酒馆 文档</div>
   </footer>
 
   <div class="ending">
     <span>SILLYTAVERN ROLEPLAY · 群屿控制台</span>
-    <span>IMMERSIVE CHAT</span>
+    <span>IMMERSIVE CHAT &amp; BONDS</span>
   </div>
 </main>
 </html>

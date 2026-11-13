@@ -5,6 +5,7 @@ import { TavernManager } from '../src/tavern/tavern-manager.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 test('parseTavernCommand 正确解析各类酒馆命令', () => {
   // /char list
@@ -372,4 +373,46 @@ test('Bot + TavernManager 按角色隔离群友历史记录，并在本轮结束
 
   const betaUserContents = modelBodies[1].messages.filter(m => m.role === 'user').map(m => m.content);
   assert.equal(betaUserContents.some(text => text.includes('你好阿尔法')), false);
+});
+
+test('酒馆文档与帮助长图覆盖核心新功能且排版与尺寸自洽', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { tavernHelpImageSize } = await import('../src/tavern/help-image.mjs');
+
+  const guide = readFileSync(new URL('../src/tavern/usage-guide.md', import.meta.url), 'utf8');
+  const helpHtml = readFileSync(new URL('../src/tavern/help.html', import.meta.url), 'utf8');
+  const operatorDoc = readFileSync(new URL('../docs/tavern.md', import.meta.url), 'utf8');
+
+  for (const text of [guide, helpHtml, operatorDoc]) {
+    assert.ok(text.includes('/情绪'));
+    assert.ok(text.includes('/羁绊榜'));
+    assert.ok(text.includes('/投喂'));
+    assert.ok(text.includes('/剧场'));
+    assert.ok(text.includes('/ooc 清除'));
+    assert.ok(text.includes('/酒馆 文档'));
+    assert.doesNotMatch(text, /端口\s*`?8000`?/);
+  }
+  for (const text of [guide, helpHtml]) {
+    assert.doesNotMatch(text, /ccv3/i);
+  }
+  assert.match(operatorDoc, /仅识别 `chara` 关键字（不读取未转化的纯 `ccv3` 块）/);
+
+  assert.match(helpHtml, new RegExp(`height:\\s*${tavernHelpImageSize.height}px`));
+  assert.ok(guide.includes(`${tavernHelpImageSize.width}×${tavernHelpImageSize.height}`));
+  assert.ok(operatorDoc.includes(`${tavernHelpImageSize.width}×${tavernHelpImageSize.height}`));
+
+  const pyCheck = spawnSync('python3', [
+    '-c',
+    `import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location('dw', sys.argv[1])
+dw = importlib.util.module_from_spec(spec); spec.loader.exec_module(dw)
+parts = dw.blocks(pathlib.Path(sys.argv[2]).read_text('utf-8'))
+tables = [v for k, v in parts if k == 'table']
+assert len(tables) >= 3
+assert all(len({len(r) for r in t}) == 1 for t in tables)`,
+    fileURLToPath(new URL('../src/document-worker.py', import.meta.url)),
+    fileURLToPath(new URL('../src/tavern/usage-guide.md', import.meta.url))
+  ], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(pyCheck.status, 0, pyCheck.stdout + pyCheck.stderr);
 });
