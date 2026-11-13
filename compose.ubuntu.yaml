@@ -1,0 +1,92 @@
+name: qunyu
+
+x-bot-image: &bot-image
+  image: qunyu-qq-bot:ubuntu
+  build:
+    context: .
+    args:
+      NODE_IMAGE: ${UBUNTU_NODE_IMAGE:-node:24-alpine}
+      ALPINE_MIRROR: ${UBUNTU_ALPINE_MIRROR:-}
+      PIP_INDEX_URL: ${UBUNTU_PIP_INDEX_URL:-https://pypi.org/simple}
+      CHROMIUM_ALPINE_MIRROR: ${UBUNTU_CHROMIUM_ALPINE_MIRROR:-}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  init:
+    <<: *bot-image
+    profiles: [tools]
+    user: "0:0"
+    entrypoint: [node, src/init-ubuntu.mjs]
+    environment:
+      DATA_DIR: /app/data
+      UBUNTU_UID: ${UBUNTU_UID:-1000}
+      UBUNTU_GID: ${UBUNTU_GID:-1000}
+      ADMIN_PASSWORD: ${UBUNTU_ADMIN_PASSWORD:-}
+      EXPECTED_BIND: ${UBUNTU_BIND:-0.0.0.0}
+      EXPECTED_PORT: ${UBUNTU_PORT:-3080}
+      EXPECTED_DATA_DIR: ${UBUNTU_DATA_DIR:-./data}
+    volumes:
+      - "${UBUNTU_DATA_DIR:-./data}:/app/data"
+    network_mode: none
+    logging: *logging
+
+  napcat:
+    image: ${UBUNTU_NAPCAT_IMAGE:-mlikiowa/napcat-docker:v4.18.42}
+    hostname: qunyu-qq
+    restart: unless-stopped
+    mem_limit: 900m
+    pids_limit: 256
+    environment:
+      NAPCAT_UID: ${UBUNTU_UID:-1000}
+      NAPCAT_GID: ${UBUNTU_GID:-1000}
+    volumes:
+      - "${UBUNTU_DATA_DIR:-./data}/napcat/config:/app/napcat/config"
+      - "${UBUNTU_DATA_DIR:-./data}/napcat/qq:/app/.config/QQ"
+      - "${UBUNTU_DATA_DIR:-./data}/napcat/plugins:/app/napcat/plugins"
+      - "${UBUNTU_DATA_DIR:-./data}/media:/app/qqbot-media:ro"
+    shm_size: 512m
+    ulimits:
+      core: 0
+    logging: *logging
+
+  qq-bot:
+    <<: *bot-image
+    user: "${UBUNTU_UID:-1000}:${UBUNTU_GID:-1000}"
+    restart: unless-stopped
+    mem_limit: 900m
+    pids_limit: 256
+    depends_on:
+      - napcat
+    ports:
+      - "${UBUNTU_BIND:-0.0.0.0}:${UBUNTU_PORT:-3080}:3080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3080
+      DATA_DIR: /app/data
+      RUNTIME_MODE: docker
+      LINK_PYTHON: /opt/link-parser/bin/python
+      NAPCAT_MEDIA_DIR: /app/qqbot-media
+      COOKIE_SECURE: ${UBUNTU_COOKIE_SECURE:-false}
+      PUBLIC_ORIGIN: ${UBUNTU_PUBLIC_ORIGIN:-}
+      GC_INTERVAL_MINUTES: ${GC_INTERVAL_MINUTES:-15}
+      RSSHUB_INTERNAL_URL: ${RSSHUB_INTERNAL_URL:-}
+    volumes:
+      - "${UBUNTU_DATA_DIR:-./data}:/app/data"
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3080/health', {signal: AbortSignal.timeout(3000)}).then(async r => {const b = await r.json(); if (!r.ok || b.app !== 'qq-deepseek-bot' || !b.ok) process.exit(1)}).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+    logging: *logging

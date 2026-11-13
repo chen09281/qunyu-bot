@@ -1,0 +1,23 @@
+data/
+.env
+.env.ubuntu
+.env.*
+!.env.example
+!.env.ubuntu.example
+.local/
+node_modules/
+*.log
+.DS_Store
+coverage/
+dist/
+release/
+docs/*.png
+__pycache__/
+*.pyc
+
+# Generated handover artifacts
+交付版本/
+
+# Local assistant / editor workspace state
+.workbuddy/
+.claude/

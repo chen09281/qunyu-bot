@@ -1,0 +1,125 @@
+{
+  "models": [
+    {
+      "sourceId": "deepseek",
+      "sourceUrl": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+      "currency": "CNY",
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "aliases": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-vision-exp"
+      ],
+      "inputPrice": 2,
+      "cachedInputPrice": 0.04,
+      "outputPrice": 8,
+      "offPeak": {
+        "inputPrice": 1,
+        "cachedInputPrice": 0.02,
+        "outputPrice": 4
+      },
+      "note": "新调用按北京时间高峰／谷时计价，历史导出保持实际金额。官方高峰为北京时间工作日 9–12 点、14–18 点（法定节假日除外）；其他时段按空闲价。搜索与抓取另计。"
+    },
+    {
+      "sourceId": "deepseek",
+      "sourceUrl": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+      "currency": "CNY",
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "aliases": [],
+      "inputPrice": 9,
+      "cachedInputPrice": 0.3,
+      "outputPrice": 27,
+      "offPeak": {
+        "inputPrice": 4.5,
+        "cachedInputPrice": 0.15,
+        "outputPrice": 13.5
+      },
+      "note": "新调用按北京时间高峰／谷时计价，历史导出保持实际金额。官方高峰为北京时间工作日 9–12 点、14–18 点（法定节假日除外）；其他时段按空闲价。搜索与抓取另计。"
+    },
+    {
+      "sourceId": "kimi",
+      "sourceUrl": "https://platform.kimi.com/docs/pricing/chat",
+      "currency": "CNY",
+      "provider": "kimi",
+      "model": "kimi-k3.1-pro",
+      "aliases": [
+        "k3.1-pro"
+      ],
+      "inputPrice": 13,
+      "outputPrice": 68,
+      "cachedInputPrice": 1.3,
+      "cacheWritePrice": 13,
+      "cacheWriteHourPrice": 26,
+      "note": "标准按量价格；缓存写入（5 分钟／1 小时）、工具调用费用未计入参考估算。"
+    },
+    {
+      "sourceId": "kimi",
+      "sourceUrl": "https://platform.kimi.com/docs/pricing/chat",
+      "currency": "CNY",
+      "provider": "kimi",
+      "model": "kimi-k3.1-pro-highspeed",
+      "inputPrice": 26,
+      "outputPrice": 136,
+      "cachedInputPrice": 1.3,
+      "cacheWritePrice": 26,
+      "cacheWriteHourPrice": 52,
+      "note": "标准按量价格；缓存写入（5 分钟／1 小时）、工具调用费用未计入参考估算。"
+    },
+    {
+      "sourceId": "kimi",
+      "sourceUrl": "https://platform.kimi.com/docs/pricing/chat",
+      "currency": "CNY",
+      "provider": "kimi",
+      "model": "kimi-k3",
+      "inputPrice": 20,
+      "outputPrice": 100,
+      "cachedInputPrice": 2,
+      "cacheWritePrice": 20,
+      "cacheWriteHourPrice": 40,
+      "note": "标准按量价格；缓存写入（5 分钟／1 小时）、工具调用费用未计入参考估算。"
+    },
+    {
+      "sourceId": "gpt-6-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "currency": "USD",
+      "provider": "openai",
+      "model": "gpt-6-sol",
+      "inputPrice": 2,
+      "cachedInputPrice": 0.2,
+      "outputPrice": 10,
+      "cacheWritePrice": 2.5,
+      "note": "Standard 标准短上下文价。长上下文、Fast、缓存写入、工具调用和地区附加费未计入参考估算。"
+    },
+    {
+      "sourceId": "gpt-6.1-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "currency": "USD",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "inputPrice": 2,
+      "cachedInputPrice": 0.1,
+      "outputPrice": 10,
+      "cacheWritePrice": 2.5,
+      "note": "Standard 标准短上下文价。长上下文、Fast、缓存写入、工具调用和地区附加费未计入参考估算。"
+    }
+  ],
+  "sources": {
+    "deepseek": {
+      "updatedAt": "2026-11-03",
+      "error": ""
+    },
+    "kimi": {
+      "updatedAt": "2026-11-03",
+      "error": ""
+    },
+    "gpt-6-sol": {
+      "updatedAt": "2026-11-03",
+      "error": ""
+    },
+    "gpt-6.1-sol": {
+      "updatedAt": "2026-11-03",
+      "error": ""
+    }
+  }
+}

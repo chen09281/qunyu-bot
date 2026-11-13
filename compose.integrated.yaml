@@ -1,0 +1,65 @@
+name: qunyu
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  napcat:
+    image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:v4.18.42}
+    hostname: qunyu-qq
+    restart: unless-stopped
+    mem_limit: 900m
+    pids_limit: 256
+    environment:
+      NAPCAT_UID: ${BOT_UID:-1000}
+      NAPCAT_GID: ${BOT_GID:-1000}
+    ports:
+      - "127.0.0.1:6099:6099"
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - "${BOT_DATA_DIR:-./data}/napcat/config:/app/napcat/config"
+      - "${BOT_DATA_DIR:-./data}/napcat/qq:/app/.config/QQ"
+      - "${BOT_DATA_DIR:-./data}/napcat/plugins:/app/napcat/plugins"
+      - "${BOT_DATA_DIR:-./data}/media:/app/qqbot-media:ro"
+    shm_size: 512m
+    ulimits:
+      core: 0
+    logging: *logging
+  qq-bot:
+    build: .
+    user: "${BOT_UID:-1000}:${BOT_GID:-1000}"
+    restart: unless-stopped
+    mem_limit: 900m
+    pids_limit: 256
+    depends_on:
+      - napcat
+    ports:
+      - "${BOT_BIND:-127.0.0.1}:${BOT_PORT:-3080}:3080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3080
+      DATA_DIR: /app/data
+      RUNTIME_MODE: docker
+      LINK_PYTHON: /opt/link-parser/bin/python
+      NAPCAT_MEDIA_DIR: /app/qqbot-media
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+      GC_INTERVAL_MINUTES: ${GC_INTERVAL_MINUTES:-15}
+    volumes:
+      - "${BOT_DATA_DIR:-./data}:/app/data"
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3080/health', {signal: AbortSignal.timeout(3000)}).then(async r => {const b = await r.json(); if (!r.ok || b.app !== 'qq-deepseek-bot' || !b.ok) process.exit(1)}).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+    logging: *logging

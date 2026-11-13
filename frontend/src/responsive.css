@@ -1,0 +1,99 @@
+/* Shared responsive shell and controls; component-specific layouts stay in their SFCs. */
+.sidebar-heading { flex-shrink: 0; }
+.workspace-navigation { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.mobile-menu { display: none; }
+.sidebar { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar::-webkit-scrollbar { display: none; }
+.page, .card, .two-columns > *, .field-grid > *, .panel-heading > div { min-width: 0; }
+.connection-row > div, .account-line > div { min-width: 0; overflow-wrap: anywhere; }
+.service-icon { flex-shrink: 0; }
+.recent-item p, .result-text, .subtle-tag { overflow-wrap: anywhere; }
+
+@media (max-width: 800px) {
+  html { scroll-padding-top: 90px; }
+  .shell { display: block; }
+  .sidebar { position: sticky; inset: 0 0 auto; z-index: 5; width: 100%; height: auto;
+    max-height: 85dvh; padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+    display: block; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { margin: 0; font-size: 20px; }
+  .brand img { width: 36px; height: 36px; }
+  .brand small { font-size: 8px; }
+  .mobile-menu { display: inline-flex; min-width: 88px; }
+  .workspace-navigation { display: none; }
+  .menu-open .workspace-navigation { display: flex; padding-top: 16px; }
+  .nav-label, .sidebar-bottom .mini-note { display: none; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 0; }
+  .sidebar .nav-item { justify-content: flex-start; margin: 0; padding: 12px; min-height: 46px; font-size: 14px; gap: 10px; }
+  .sidebar .nav-item > span { display: inline-block; width: 20px; font-size: 19px; }
+  .sidebar-bottom { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  main { width: 100%; margin: 0; }
+  .topbar { height: 52px; padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left)); }
+  .topbar-right { gap: 10px; }
+  .topbar-right > .muted, .topbar-right > .avatar { display: none; }
+  .topbar-right .text-button { font-size: 12px; min-height: 44px; }
+  .content { padding: 26px max(18px, env(safe-area-inset-right)) 28px max(18px, env(safe-area-inset-left)); min-height: calc(100dvh - 180px); }
+  .two-columns, .napcat-layout { grid-template-columns: minmax(0, 1fr); }
+  .page-heading { align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 22px; }
+  .page-heading > div { width: 100%; }
+  .page-heading h1 { font-size: clamp(23px, 5vw, 28px); line-height: 1.5; letter-spacing: -.6px; }
+  .page-heading p { font-size: 13px; }
+  .page-heading > .secondary { margin: 0; font-size: 13px; min-height: 44px; padding: 10px 16px; }
+  .eyebrow { font-size: 10px; letter-spacing: 1.5px; }
+  .primary, .secondary { min-height: 44px; font-size: 13px; }
+  .text-button { min-height: 44px; font-size: 12px; }
+  input, select, textarea, input[readonly], .filter-label select, .login-card input { font-size: 16px; min-width: 0; }
+  input:not([type=checkbox]):not([type=radio]), select { min-height: 46px; }
+  input[type=file] { max-width: 100%; }
+  .form-panel label, .login-card label { font-size: 13px; }
+  .form-panel small, .login-card small, .footnote { font-size: 11px; }
+  .field-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .panel { padding: 20px; }
+  .panel-heading { flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .panel-heading h2 { line-height: 1.5; }
+  .subtle-tag { font-size: 10px; }
+  .form-actions, .save-bar > div { flex-wrap: wrap; }
+  .form-actions > button { flex: 1 1 160px; }
+  .save-bar { flex-direction: column; align-items: stretch; font-size: 12px; margin-bottom: 0; }
+  .save-bar > div { width: 100%; }
+  .save-bar button { flex: 1 1 140px; }
+  .hero-copy { max-width: 100%; padding: 24px; }
+  .hero h2, .hero p { max-width: none; }
+  .hero h2 { font-size: 23px; padding-right: 50px; }
+  .hero p { font-size: 13px; }
+  .hero-actions { gap: 12px; flex-wrap: wrap; }
+  .hero-actions .text-button { font-size: 12px; background: transparent; }
+  .bot-art { position: absolute; right: -35px; top: 10px; width: 130px; height: 150px; opacity: .2; pointer-events: none; }
+  .stat { padding: 18px 16px; }
+  .stat > span { font-size: 12px; }
+  .stat small { font-size: 11px; line-height: 1.7; }
+  .stat strong { font-size: 28px; overflow-wrap: anywhere; }
+  .connection-row small, .status-label, .panel-foot { font-size: 11px; line-height: 1.7; }
+  .connection-row { gap: 10px; }
+  .panel-foot { flex-wrap: wrap; gap: 8px; }
+  .recent-item { font-size: 13px; }.recent-item time { font-size: 11px; }
+  .callout, .callout p, .callout b { font-size: 12px; }
+  .steps { grid-template-columns: minmax(0, 1fr); }
+  .steps p, .steps b { font-size: 12px; overflow-wrap: anywhere; }
+  .qr-frame { width: min(248px, 100%); min-height: 0; }
+  .napcat-login { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .napcat-panel > .panel-heading > .secondary { min-height: 44px; font-size: 13px; padding: 10px 16px; }
+  .napcat-2fa { flex-wrap: wrap; }
+  .napcat-2fa label { flex-basis: 100%; }
+  .napcat-services > div { flex-wrap: wrap; }
+  .napcat-detail { overflow-wrap: anywhere; }
+  .toast { width: max-content; max-width: calc(100vw - 32px); bottom: max(20px, env(safe-area-inset-bottom)); overflow-wrap: anywhere; }
+  footer { padding: 20px max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); font-size: 10px; }
+  .footer-right { display: none; }
+  .login-wrap { min-height: 100dvh; flex-direction: column; padding: max(28px, env(safe-area-inset-top)) 18px max(28px, env(safe-area-inset-bottom)); }
+  .login-card { width: min(410px, 100%); padding: 28px 24px; flex-shrink: 0; }
+  .login-footer { position: static; margin-top: 24px; text-align: center; }
+  .login-help { overflow-wrap: anywhere; font-size: 11px; }
+  .filter-label { width: 100%; font-size: 12px; }
+  .filter-label select { max-width: 220px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}

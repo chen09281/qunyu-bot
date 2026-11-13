@@ -1,0 +1,38 @@
+name: qqbot-rsshub
+
+services:
+  rsshub:
+    image: ${RSSHUB_IMAGE:-diygod/rsshub:chromium-bundled}
+    container_name: rsshub
+    restart: unless-stopped
+    env_file:
+      - ${RSSHUB_ENV_FILE:-./rsshub.env}
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      CACHE_EXPIRE: '600'
+      REQUEST_TIMEOUT: '60000'
+      NODE_OPTIONS: --max-old-space-size=384
+    # The bot uses RSSHUB_INTERNAL_URL=http://rsshub:1200 on the shared network.
+    # Keep a localhost entry for diagnostics without publishing credential-backed routes.
+    ports:
+      - '127.0.0.1:80:1200'
+    networks:
+      - bot
+    mem_limit: ${RSSHUB_MEMORY_LIMIT:-1g}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:1200/', {signal: AbortSignal.timeout(3000)}).then(r => {if (!r.ok) process.exit(1)}).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+networks:
+  bot:
+    external: true
+    name: ${RSSHUB_DOCKER_NETWORK:-qunyu_default}
