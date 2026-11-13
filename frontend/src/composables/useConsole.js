@@ -115,7 +115,8 @@ export function useConsole() {
     if (writesConfig) { configRevision++; configWrites++; }
     const controller = new AbortController();
     const timeout = path.endsWith('/check') && path.startsWith('subscriptions/') ? 300000
-      : path.endsWith('/preview') || path.endsWith('/probe') || path.endsWith('/sync') || path === 'test-deepseek' ? 120000 : path.startsWith('links/') ? 90000 : 30000;
+      : path === 'napcat/qrcode' ? 150000
+        : path.endsWith('/preview') || path.endsWith('/probe') || path.endsWith('/sync') || path === 'test-deepseek' ? 120000 : path.startsWith('links/') ? 90000 : 30000;
     let timer;
     const expired = new Promise((_, reject) => { timer = setTimeout(() => {
       controller.abort(); reject(new Error('请求超时，请刷新状态确认是否已生效后再重试'));

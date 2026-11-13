@@ -2,6 +2,10 @@
 
 ## 未发布 · 2026-11-13
 
+- **彻底修复 NapCat 自动恢复与重启期间误报「无法连接管理接口」的问题**：
+  - 修复 `src/napcat.mjs` 中 `authenticate()` 在 NapCat 重启导致短时 `connection` / `timeout`（如 `ECONNREFUSED`）时错误触发 60 秒 `retryAfter` 冷却锁定的问题：改为仅对鉴权拒绝类错误（Token 无效、频率限制等）退避 60 秒，重启断连恢复后下一次轮询立即重连。
+  - 修复 `qrcode()` 未先复用进行中的 `context.recovering` 恢复任务、以及 `recoverLogin()` 轮询间隔未清除退避状态且强制刷新二维码耗时过长的问题；当 `RefreshQRcode` 请求自身 HTTP 超时时同样触发自动清理登录缓存并重启 NapCat，并跳过空目录的无效备份；在自动重置重启期间将后台探测状态平滑展示为「正在重置登录服务 / 正在重启」。
+  - 将前端控制台 `napcat/qrcode` 请求超时从 30 秒放宽至 150 秒（`frontend/src/composables/useConsole.js`），并优化 [NapcatPanel.vue](frontend/src/components/NapcatPanel.vue) 与 [OverviewPanel.vue](frontend/src/components/OverviewPanel.vue) 的重启状态提示，补充回归测试覆盖重启断连恢复、并发扫码请求与 HTTP 超时场景。
 - **酒馆文档与群内帮助体系重构**：
   - 新增完整管理员与进阶手册 [docs/tavern.md](docs/tavern.md)，系统说明 PNG / JSON（SillyTavern V2）角色卡导入导出、世界书（Lorebook）触发与预算、好感度与 6 维情绪系统、「全群共享 / 群内个人独立」模式选择、分角色定时问候及常见问题排查，并将该文档纳入交付包发布清单（`scripts/release-files.mjs`）。
   - 重写 `/酒馆 文档` 对应的群聊指南 `src/tavern/usage-guide.md`，涵盖 5 分钟上手、角色切换/绑定/隔离机制、`/ooc` 导演指令、`/retry` 与 `/undo` 时光倒流、`/投喂` 与 `/剧场` 玩法及典型报错应对，优化 PDF 分页排版。

@@ -24,7 +24,10 @@ async function fixture(t, options = {}) {
       if (state.failOnebot) { res.writeHead(503); return send({}); }
       return send({ status: 'ok', retcode: 0, data: req.url === '/get_status' ? { online: state.online, good: true } : { user_id: 123456789, nickname: '测试 QQ' } });
     }
-    if (state.failWeb) { res.writeHead(503); return send({}); }
+    if (state.failWeb) {
+      if (state.pendingRestartDowntime > 0 && --state.pendingRestartDowntime === 0) state.failWeb = false;
+      res.writeHead(503); return send({});
+    }
     if (req.url === '/api/auth/login') {
       state.authCalls++;
       if (state.authError || input.hash !== createHash('sha256').update('test-webui-token.napcat').digest('hex')) return send({ code: -1, message: 'token is invalid SECRET_RAW_ERROR' });
@@ -54,7 +57,11 @@ async function fixture(t, options = {}) {
     }
     if (req.url === '/api/QQLogin/RestartNapCat') {
       state.restartCalls = (state.restartCalls || 0) + 1;
-      // 模拟重启后登录服务恢复：缓存被清空后能重新生成二维码。
+      // 模拟重启后登录服务恢复：可先经历若干次连接失败再重新生成二维码。
+      if (state.restartDowntimePolls > 0) {
+        state.failWeb = true;
+        state.pendingRestartDowntime = state.restartDowntimePolls;
+      }
       state.getQrError = false; state.refreshError = false; state.phase = 'waiting_qrcode';
       return send({ code: 0, data: { message: '进程重启请求已发送' } });
     }
@@ -125,6 +132,11 @@ test('管理鉴权失败时退避，接口不可达时不误报在线，OneBot �
   app.napcat.current = null;
   const failed = await api('napcat/refresh', {});
   assert.equal(failed.data.webui.reachable, false); assert.equal(failed.data.qq.state, 'unknown');
+  // 临时连接失败不触发 60 秒退避，NapCat 恢复后下一次探测立即重连成功。
+  state.failWeb = false; state.online = false;
+  const recoveredConn = await api('napcat/refresh', {});
+  assert.equal(recoveredConn.data.webui.authenticated, true);
+  assert.equal(recoveredConn.data.qq.state, 'waiting_scan');
 });
 
 test('二维码获取与刷新回退、慢刷新及真实失败处理', async t => {
@@ -177,6 +189,58 @@ test('登录服务卡死时自动备份清空缓存并重启，冷却期内不�
   state.getQrError = true; state.refreshError = true; app.napcat.context().qr = null;
   const again = await api('napcat/qrcode', { refresh: true });
   assert.equal(again.status, 502); assert.match(again.data.error, /无法生成二维码/);
+  assert.doesNotMatch(again.data.error, /正在自动重置/);
+  assert.equal(state.restartCalls, 1);
+});
+
+test('重启恢复期间短暂断连不锁定 60 秒，并发状态/扫码请求不报错并快速恢复', async t => {
+  const { app, state, api } = await fixture(t, { napcatOptions: { recoveryWaitMs: 6000, recoveryPollMs: 120, recoveryCooldownMs: 600000 } });
+  const qqDir = app.napcat.qqDataDir;
+  await mkdir(join(qqDir, 'nt_qq'), { recursive: true });
+  await writeFile(join(qqDir, 'nt_qq', 'stale.db'), 'stale-session');
+  // 模拟真实重启过程：RestartNapCat 后管理接口短暂返回 503/断连（消耗 3 次请求），随后恢复服务。
+  state.restartDowntimePolls = 3;
+  state.getQrError = true; state.refreshError = true;
+
+  const firstReq = api('napcat/qrcode', { refresh: true });
+  // 等待自动恢复进入 RestartNapCat 断连窗口，再发并发 status 和第二次 qrcode 请求。
+  while (!app.napcat.context().recovering) await new Promise(r => setTimeout(r, 20));
+  const duringStatus = await api('napcat/refresh', {});
+  assert.equal(duringStatus.status, 200);
+  if (duringStatus.data.webui.recovering) {
+    assert.equal(duringStatus.data.qq.state, 'reconnecting');
+    assert.match(duringStatus.data.qq.label, /重置登录服务/);
+  }
+  const secondReq = api('napcat/qrcode', { refresh: false });
+  const [r1, r2] = await Promise.all([firstReq, secondReq]);
+  assert.equal(r1.status, 200); assert.equal(r1.data.url, state.qrcode);
+  assert.equal(r2.status, 200); assert.equal(r2.data.url, state.qrcode);
+  assert.equal(state.restartCalls, 1);
+
+  const afterStatus = await api('napcat/status');
+  assert.equal(afterStatus.data.webui.authenticated, true);
+  assert.equal(afterStatus.data.qq.state, 'waiting_scan');
+});
+
+test('刷新二维码 HTTP 请求本身超时同样触发自动清缓存与重启恢复', async t => {
+  const { app, state, api } = await fixture(t, { napcatOptions: { recoveryWaitMs: 6000, recoveryPollMs: 120, recoveryCooldownMs: 600000 } });
+  const qqDir = app.napcat.qqDataDir;
+  await mkdir(join(qqDir, 'nt_qq'), { recursive: true });
+  await writeFile(join(qqDir, 'nt_qq', 'stale.db'), 'stale-session');
+
+  const originalRequest = app.bot.request.bind(app.bot);
+  let timeoutOnce = true;
+  app.bot.request = async (url, body, auth, timeout, method, options) => {
+    if (timeoutOnce && url.endsWith('/api/QQLogin/RefreshQRcode')) {
+      timeoutOnce = false;
+      throw new Error('上游请求超时');
+    }
+    return originalRequest(url, body, auth, timeout, method, options);
+  };
+  state.getQrError = true;
+  const recovered = await api('napcat/qrcode', { refresh: true });
+  assert.equal(recovered.status, 200);
+  assert.equal(recovered.data.url, state.qrcode);
   assert.equal(state.restartCalls, 1);
 });
 
