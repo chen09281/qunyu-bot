@@ -32,10 +32,18 @@ watch(() => c.state.qrcode?.url, async url => {
         <small class="napcat-checked">{{ c.state.napcat?.checkedAt ? `最近检查：${timeText(c.state.napcat.checkedAt)}` : '正在等待检测结果' }} · 扫码确认后自动更新</small>
       </div>
       <div class="napcat-login">
-        <div v-if="online" class="qr-placeholder qr-success"><span>✓</span><b>QQ 已在线</b><small>可以在群里 @ 机器人了</small></div>
-        <template v-else><div class="qr-frame"><img v-if="qrImage" :src="qrImage" alt="QQ 登录二维码" width="224" height="224"><div v-else class="qr-placeholder"><span>⌗</span><b>{{ c.state.busy.qrcode ? '正在获取二维码…' : '手机 QQ 扫码登录' }}</b><small>{{ c.state.busy.qrcode ? '若登录服务无响应会自动清理缓存并重启，约需 10–30 秒' : c.state.config.napcatTokenConfigured ? '点击下方按钮获取登录二维码' : '先保存下方 NapCat 管理连接' }}</small></div></div><p class="qr-caption">使用手机 QQ 扫码，并在手机上确认登录。</p><div class="qr-actions"><button class="primary" :disabled="c.state.busy.qrcode || !c.state.config.napcatTokenConfigured" @click="c.getQrcode(false)">{{ c.state.busy.qrcode ? '获取中…' : '获取二维码' }}</button><button class="secondary" :disabled="c.state.busy.qrcode || !c.state.config.napcatTokenConfigured" @click="c.getQrcode(true)">刷新二维码</button></div></template>
+        <template v-if="online">
+          <div class="qr-frame"><div class="qr-placeholder qr-success"><span>✓</span><b>{{ c.state.busy.napcatLogout ? '正在退出 QQ 登录…' : 'QQ 已在线' }}</b><small>{{ c.state.busy.napcatLogout ? '正在清理登录会话并重启 NapCat，请稍候' : '可以在群里 @ 机器人了' }}</small></div></div>
+          <p class="qr-caption">如需切换 QQ 账号或暂时断开当前连接，可退出后重新扫码。</p>
+          <div class="qr-actions"><button id="napcat-qq-logout" class="secondary danger-btn" type="button" :disabled="c.state.busy.napcatLogout || !c.state.config.napcatTokenConfigured" @click="c.logoutNapcat">{{ c.state.busy.napcatLogout ? '退出中…' : '退出 QQ 登录' }}</button></div>
+        </template>
+        <template v-else><div class="qr-frame"><img v-if="qrImage" :src="qrImage" alt="QQ 登录二维码" width="224" height="224"><div v-else class="qr-placeholder"><span>⌗</span><b>{{ c.state.busy.qrcode ? '正在获取二维码…' : c.state.busy.napcatLogout ? '正在退出 QQ 登录…' : c.state.napcat?.qq?.state === 'reconnecting' ? (c.state.napcat?.qq?.label || '正在重置登录服务') : '手机 QQ 扫码登录' }}</b><small>{{ (c.state.busy.qrcode || c.state.busy.napcatLogout) ? '正在重启或重置登录服务，约需 10–30 秒' : c.state.config.napcatTokenConfigured ? '点击下方按钮获取登录二维码' : '先保存下方 NapCat 管理连接' }}</small></div></div><p class="qr-caption">使用手机 QQ 扫码，并在手机上确认登录。</p><div class="qr-actions"><button class="primary" :disabled="c.state.busy.qrcode || c.state.busy.napcatLogout || !c.state.config.napcatTokenConfigured" @click="c.getQrcode(false)">{{ c.state.busy.qrcode ? '获取中…' : '获取二维码' }}</button><button class="secondary" :disabled="c.state.busy.qrcode || c.state.busy.napcatLogout || !c.state.config.napcatTokenConfigured" @click="c.getQrcode(true)">刷新二维码</button></div></template>
         <p v-if="c.state.qrError || imageError" class="error-text" role="alert">{{ c.state.qrError || imageError }}</p>
       </div>
     </div>
   </article>
 </template>
+
+<style scoped>
+.danger-btn { color: var(--red); border-color: #e6c6c6; }
+</style>

@@ -114,10 +114,12 @@ export class Napcat {
       webui.error = web.reason.message; webui.requires2FA = web.reason.kind === 'twoFactor';
       webui.reachable = !['connection', 'unconfigured'].includes(web.reason.kind);
     }
-    const recoveringRestart = Boolean(context.recovering && web.status === 'rejected' && ['connection', 'timeout'].includes(web.reason?.kind));
-    if (recoveringRestart) {
+    const restarting = Boolean((context.recovering || context.loggingOut) && web.status === 'rejected' && ['connection', 'timeout'].includes(web.reason?.kind));
+    if (restarting) {
       webui.recovering = true;
-      webui.error = '正在自动重置 QQ 登录缓存并重启 NapCat，请稍候…';
+      webui.error = context.loggingOut
+        ? '正在退出 QQ 登录并重启 NapCat，请稍候…'
+        : '正在自动重置 QQ 登录缓存并重启 NapCat，请稍候…';
     }
     const onebot = { reachable: obStatus.status === 'fulfilled', online: obStatus.status === 'fulfilled' && typeof obStatus.value?.online === 'boolean' ? obStatus.value.online : null,
       error: obStatus.status === 'rejected' ? 'OneBot 接口未连接，请检查 NapCat 是否已启动及接口配置' : '' };
@@ -129,9 +131,12 @@ export class Napcat {
     const userId = info?.user_id ?? info?.uin;
     const account = { userId: /^\d{5,20}$/.test(String(userId)) ? String(userId) : '', nickname: String(info?.nickname ?? info?.nick ?? '').slice(0, 100) };
     let state = 'unknown', label = '状态未知', detail = webui.error || onebot.error;
-    if (recoveringRestart) {
-      state = 'reconnecting'; label = '正在重置登录服务';
-      detail = 'QQ 登录缓存无响应，正在自动清理缓存并重启 NapCat 登录服务（通常需要 10–30 秒），请勿重复操作';
+    if (restarting) {
+      state = 'reconnecting';
+      label = context.loggingOut ? '正在退出 QQ 登录' : '正在重置登录服务';
+      detail = context.loggingOut
+        ? '正在清理 QQ 登录会话并重启 NapCat 登录服务（通常需要 10–30 秒），请勿重复操作'
+        : 'QQ 登录缓存无响应，正在自动清理缓存并重启 NapCat 登录服务（通常需要 10–30 秒），请勿重复操作';
     }
     else if (onebot.online === true || (onebot.online === null && login.isLogin === true)) { state = 'online'; label = 'QQ 在线'; detail = 'QQ 已登录，账号在线'; }
     else if (login.isOffline === true || (onebot.online === false && (web.status === 'rejected' || login.isLogin === true))) { state = 'offline'; label = 'QQ 登录已失效'; detail = 'QQ 登录会话已失效或账号已离线，请获取新二维码并重新扫码登录；若二维码无法生成，请重启 NapCat 登录服务'; }
@@ -144,6 +149,9 @@ export class Napcat {
   }
   async qrcode(refresh = false) {
     const context = this.context();
+    if (context.loggingOut) {
+      try { await context.loggingOut; } catch { /* Previous logout finished; continue fetching QR code. */ }
+    }
     if (context.recovering) return context.recovering;
     try { return await this.fetchQrcode(refresh); }
     catch (error) {
@@ -160,7 +168,11 @@ export class Napcat {
       return this.recoverLogin(context);
     }
   }
-  // 备份并清空 QQ 登录缓存。只在未登录时调用：缓存里的失效会话正是登录服务卡死的原因。
+  resetSessionContext(context, { clearQr = true } = {}) {
+    context.credential = ''; context.expiresAt = 0; context.authError = null; context.retryAfter = 0; context.cache = null;
+    if (clearQr) context.qr = null;
+  }
+  // 备份并清空 QQ 登录缓存。用于退出 QQ 登录或登录服务卡死恢复。
   // 用同目录改名而非复制，几百 MB 的缓存也能瞬间让位；只保留最近两份自动备份。
   resetLoginCache() {
     const dir = this.qqDataDir;
@@ -168,7 +180,8 @@ export class Napcat {
     const entries = readdirSync(dir);
     if (!entries.length) return '';
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
-    const backup = `${dir}.auto-${stamp}`;
+    let backup = `${dir}.auto-${stamp}`;
+    if (existsSync(backup)) backup = `${backup}-${Date.now().toString(36)}`;
     mkdirSync(backup, { recursive: true });
     for (const entry of entries) renameSync(join(dir, entry), join(backup, entry));
     const parent = dirname(dir);
@@ -177,35 +190,75 @@ export class Napcat {
     for (const name of older) rmSync(join(parent, name), { recursive: true, force: true });
     return backup;
   }
+  async restartAndPoll(context, { checkReady, onTimeout }) {
+    try { await this.webui(context, 'QQLogin/RestartNapCat', {}, 10); }
+    // 重启会先断开容器内的 QQ 进程（容器随后按策略重建），管理接口短暂不可用属于预期。
+    catch { /* 等待重启完成后重新鉴权即可。 */ }
+    this.resetSessionContext(context, { clearQr: true });
+    const deadline = Date.now() + this.recoveryWaitMs;
+    while (Date.now() < deadline) {
+      await sleep(this.recoveryPollMs);
+      this.resetSessionContext(context, { clearQr: false });
+      try {
+        const result = await checkReady();
+        if (result) return result;
+      } catch (error) {
+        // 若管理鉴权或二次验证本身无效则不再空等。
+        if (error.kind === 'twoFactor' || (error.kind === 'auth' && /Token 不正确/.test(error.message))) throw error;
+        /* 容器重启期间接口不可达或登录服务尚未就绪，继续轮询。 */
+      }
+    }
+    throw onTimeout();
+  }
   async recoverLogin(context) {
     context.recovering = (async () => {
       const backup = this.resetLoginCache();
       this.bot.log?.('warn', backup ? `QQ 登录服务无响应，已备份并清空登录缓存：${backup}` : 'QQ 登录服务无响应，正在重启 NapCat 登录服务');
-      try { await this.webui(context, 'QQLogin/RestartNapCat', {}, 10); }
-      // 重启会先断开容器内的 QQ 进程（容器随后按策略重建），管理接口短暂不可用属于预期。
-      catch { /* 等待重启完成后重新鉴权即可。 */ }
-      context.credential = ''; context.expiresAt = 0; context.authError = null; context.retryAfter = 0; context.cache = null; context.qr = null;
-      const deadline = Date.now() + this.recoveryWaitMs;
-      while (Date.now() < deadline) {
-        await sleep(this.recoveryPollMs);
-        context.credential = ''; context.expiresAt = 0; context.authError = null; context.retryAfter = 0; context.cache = null;
-        try {
-          const qr = await this.fetchQrcode(false);
-          if (qr?.url) return qr;
-        } catch (error) {
-          // 若管理鉴权或二次验证本身无效则不再空等。
-          if (error.kind === 'twoFactor' || (error.kind === 'auth' && /Token 不正确/.test(error.message))) throw error;
-          /* 容器重启期间接口不可达或二维码尚未生成，继续轮询。 */
-        }
-      }
-      throw new NapcatError(
-        backup
-          ? `已备份并清空 QQ 登录缓存（${backup}）并重启 NapCat，但 ${Math.round(this.recoveryWaitMs / 1000)} 秒内仍未生成二维码，请检查 NapCat 容器日志`
-          : `已重启 NapCat，但 ${Math.round(this.recoveryWaitMs / 1000)} 秒内仍未生成二维码，请检查 NapCat 容器日志`,
-        'qrcode'
-      );
+      return this.restartAndPoll(context, {
+        checkReady: () => this.fetchQrcode(false),
+        onTimeout: () => new NapcatError(
+          backup
+            ? `已备份并清空 QQ 登录缓存（${backup}）并重启 NapCat，但 ${Math.round(this.recoveryWaitMs / 1000)} 秒内仍未生成二维码，请检查 NapCat 容器日志`
+            : `已重启 NapCat，但 ${Math.round(this.recoveryWaitMs / 1000)} 秒内仍未生成二维码，请检查 NapCat 容器日志`,
+          'qrcode'
+        )
+      });
     })();
     try { return await context.recovering; } finally { context.recovering = null; context.cache = null; }
+  }
+  /** 退出当前 QQ 登录：清除自动登录标记、备份清理会话缓存并重启 NapCat 登录服务。 */
+  async logout() {
+    const context = this.context();
+    if (context.loggingOut) return context.loggingOut;
+    if (context.recovering) {
+      try { await context.recovering; } catch { /* Previous recovery finished; continue explicit logout. */ }
+    }
+    if (!context.config.napcatToken) throw new NapcatError('请先保存 NapCat WebUI Token', 'unconfigured');
+    if (!existsSync(this.qqDataDir)) throw new NapcatError('找不到 NapCat 登录数据目录，请确认 data/napcat/qq 已挂载', 'unconfigured');
+    try { await this.webui(context, 'QQLogin/SetQuickLoginQQ', { uin: '' }, 5); }
+    catch (error) {
+      if (error.kind === 'twoFactor' || (error.kind === 'auth' && /Token 不正确/.test(error.message))) throw error;
+    }
+    context.loggingOut = (async () => {
+      const backup = this.resetLoginCache();
+      this.bot.log?.('info', backup ? `正在退出 QQ 登录并清理会话缓存（${backup}）` : '正在退出 QQ 登录并重启 NapCat 登录服务');
+      if (this.bot && 'selfId' in this.bot) this.bot.selfId = '';
+      let lastStatus = null;
+      return this.restartAndPoll(context, {
+        checkReady: async () => {
+          const status = await this.probe(context);
+          lastStatus = status;
+          if (status.webui.requires2FA) throw new NapcatError('NapCat 已启用二次验证，请输入动态验证码连接', 'twoFactor');
+          if (status.webui.error && /Token 不正确/.test(status.webui.error)) throw new NapcatError('NapCat WebUI Token 不正确', 'auth');
+          if (status.webui.authenticated && status.qq.state !== 'online') return status;
+          return null;
+        },
+        onTimeout: () => lastStatus?.qq?.state === 'online'
+          ? new NapcatError('已清理缓存并重启 NapCat，但 QQ 仍处于在线状态，请检查是否配置了自动登录环境变量', 'upstream')
+          : new NapcatError(`已退出 QQ 登录并重启 NapCat，但 ${Math.round(this.recoveryWaitMs / 1000)} 秒内登录服务仍未就绪，请稍后点击“检查状态”`, 'qrcode')
+      });
+    })();
+    try { return await context.loggingOut; } finally { context.loggingOut = null; context.cache = null; }
   }
   async tryQrEndpoint(context, route, timeout, remember) {
     try { return await this.webui(context, route, {}, timeout); }

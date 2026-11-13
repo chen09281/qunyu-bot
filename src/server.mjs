@@ -799,6 +799,10 @@ export async function createApplication(options = {}) {
           if (input.refresh !== undefined && typeof input.refresh !== 'boolean') throw new HttpError(400, '二维码刷新参数错误');
           try { return send(200, await napcat.qrcode(input.refresh === true)); } catch (error) { throw new HttpError(502, error.message); }
         }
+        if (path === '/api/napcat/logout' && req.method === 'POST') {
+          try { return send(200, await napcat.logout()); }
+          catch (error) { throw new HttpError(error.kind === 'unconfigured' ? 400 : 502, error.message); }
+        }
         if (path === '/api/webhook-token' && req.method === 'POST') return send(200, { token: store.config.webhookToken });
         if (path === '/api/test-onebot' && req.method === 'POST') {
           try {

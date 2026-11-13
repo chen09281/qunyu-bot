@@ -55,6 +55,11 @@ async function fixture(t, options = {}) {
       if (state.refreshOnlyTriggers) return send({ code: 0, data: {} });
       return send({ code: 0, data: { qrcode: '', qrcodeurl: state.qrcode } });
     }
+    if (req.url === '/api/QQLogin/SetQuickLoginQQ') {
+      state.quickLoginCalls = (state.quickLoginCalls || 0) + 1;
+      state.quickLoginUin = input.uin;
+      return send({ code: 0, data: null });
+    }
     if (req.url === '/api/QQLogin/RestartNapCat') {
       state.restartCalls = (state.restartCalls || 0) + 1;
       // 模拟重启后登录服务恢复：可先经历若干次连接失败再重新生成二维码。
@@ -62,6 +67,7 @@ async function fixture(t, options = {}) {
         state.failWeb = true;
         state.pendingRestartDowntime = state.restartDowntimePolls;
       }
+      if (state.logoutClearsOnline) state.online = false;
       state.getQrError = false; state.refreshError = false; state.phase = 'waiting_qrcode';
       return send({ code: 0, data: { message: '进程重启请求已发送' } });
     }
@@ -277,4 +283,44 @@ test('一体化部署复用原密码与密钥、配对双向 HTTP，重复准备
   assert.equal(again.napcatToken, config.napcatToken); assert.equal(again.onebotToken, config.onebotToken);
   const account = JSON.parse(await readFile(join(prepared.configDir, 'onebot11_123456789.json'), 'utf8'));
   assert.equal(account.network.httpClients.length, 2); assert.equal(account.network.httpClients.filter(item => item.name === 'qunyu-events').length, 1);
+});
+
+test('退出 QQ 登录清理自动登录与会话缓存，重启后恢复为待扫码并可重新取码', async t => {
+  const { app, state, api, url } = await fixture(t, { napcatOptions: { recoveryWaitMs: 6000, recoveryPollMs: 120, recoveryCooldownMs: 600000 } });
+  assert.equal((await fetch(url + '/api/napcat/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' }, body: '{}' })).status, 401);
+  // 未挂载 data/napcat/qq 时明确报错，不伪造退出成功。
+  const unmounted = await api('napcat/logout', {});
+  assert.equal(unmounted.status, 400);
+  assert.match(unmounted.data.error, /data\/napcat\/qq/);
+
+  const qqDir = app.napcat.qqDataDir;
+  await mkdir(join(qqDir, 'nt_qq'), { recursive: true });
+  await writeFile(join(qqDir, 'nt_qq', 'session.db'), 'active-qq-session');
+  app.bot.selfId = '123456789';
+  state.online = true; state.phase = 'ready'; state.logoutClearsOnline = true;
+  state.restartDowntimePolls = 3; state.quickLoginUin = '123456789';
+
+  const loggingOut = api('napcat/logout', {});
+  while (!app.napcat.context().loggingOut) await new Promise(r => setTimeout(r, 20));
+  const duringStatus = await api('napcat/refresh', {});
+  assert.equal(duringStatus.status, 200);
+  if (duringStatus.data.webui.recovering) {
+    assert.equal(duringStatus.data.qq.state, 'reconnecting');
+    assert.match(duringStatus.data.qq.label, /退出 QQ 登录/);
+  }
+  const done = await loggingOut;
+  assert.equal(done.status, 200);
+  assert.equal(done.data.qq.state, 'waiting_scan');
+  assert.equal(state.quickLoginCalls, 1);
+  assert.equal(state.quickLoginUin, '');
+  assert.equal(state.restartCalls, 1);
+  assert.equal(app.bot.selfId, '');
+  assert.equal((await readdir(qqDir)).length, 0);
+  const backups = (await readdir(join(qqDir, '..'))).filter(name => name.startsWith('qq.auto-'));
+  assert.equal(backups.length, 1);
+  assert.equal(await readFile(join(qqDir, '..', backups[0], 'nt_qq', 'session.db'), 'utf8'), 'active-qq-session');
+
+  const qr = await api('napcat/qrcode', { refresh: false });
+  assert.equal(qr.status, 200);
+  assert.equal(qr.data.url, state.qrcode);
 });

@@ -153,3 +153,49 @@ test('预览立即显示加载状态，关闭后迟到响应不重新打开弹�
   c.closeSubscriptionPreview(); finish(Response.json({ title: '来源 A', items: [] })); await pending;
   assert.equal(c.state.subscriptionPreview, null);
 });
+
+test('QQ 连接退出登录先经危险确认，确认后更新为待扫码状态；界面正确渲染退出按钮', async t => {
+  const c = await setup(t);
+  c.state.authenticated = true;
+  c.state.config = { napcatTokenConfigured: true };
+  c.state.napcat = { qq: { state: 'online', label: 'QQ 在线', detail: 'QQ 已登录' }, webui: { authenticated: true }, onebot: { reachable: true }, account: { userId: '10001', nickname: '测试号' } };
+  c.state.qrcode = { url: 'https://txz.qq.com/p?k=old' };
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    calls.push({ url, method: options.method || 'GET' });
+    return Response.json({ checkedAt: Date.now(), webui: { authenticated: true }, onebot: { reachable: true }, account: { userId: '', nickname: '' }, qq: { state: 'waiting_scan', label: '等待扫码', detail: '使用手机 QQ 扫码，并在手机上确认登录' } });
+  });
+  let pending = c.logoutNapcat();
+  assert.equal(c.state.confirmation.title, '退出当前 QQ 登录？');
+  assert.match(c.state.confirmation.description, /测试号（QQ 10001）/);
+  c.resolveConfirmation(false);
+  await pending;
+  assert.equal(calls.length, 0);
+
+  pending = c.logoutNapcat();
+  c.resolveConfirmation(true);
+  await pending;
+  assert.deepEqual(calls, [{ url: '/api/napcat/logout', method: 'POST' }]);
+  assert.equal(c.state.napcat.qq.state, 'waiting_scan');
+  assert.equal(c.state.qrcode, null);
+  assert.match(c.state.toast.message, /已退出 QQ 登录/);
+
+  const { createServer } = await import('vite'), vite = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true } });
+  t.after(() => vite.close());
+  const { default: NapcatPanel } = await vite.ssrLoadModule('/src/components/NapcatPanel.vue');
+  const { consoleKey } = await vite.ssrLoadModule('/src/composables/useConsole.js');
+  const renderPanel = napcat => {
+    const app = createSSRApp(NapcatPanel);
+    app.provide(consoleKey, {
+      state: { config: { napcatTokenConfigured: true }, napcat, busy: {}, qrcode: null, qrError: '', totpCode: '' },
+      refreshNapcat() {}, connectNapcat() {}, getQrcode() {}, logoutNapcat() {}
+    });
+    return renderToString(app);
+  };
+  const onlineHtml = await renderPanel({ qq: { state: 'online', label: 'QQ 在线' }, webui: { authenticated: true }, onebot: { reachable: true }, account: { userId: '10001', nickname: '测试号' } });
+  assert.match(onlineHtml, /id="napcat-qq-logout"/);
+  assert.match(onlineHtml, /退出 QQ 登录/);
+  const offlineHtml = await renderPanel({ qq: { state: 'waiting_scan', label: '等待扫码' }, webui: { authenticated: true }, onebot: { reachable: true }, account: {} });
+  assert.doesNotMatch(offlineHtml, /id="napcat-qq-logout"/);
+  assert.match(offlineHtml, /获取二维码/);
+});

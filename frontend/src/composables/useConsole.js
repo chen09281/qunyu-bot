@@ -117,7 +117,7 @@ export function useConsole() {
     if (writesConfig) { configRevision++; configWrites++; }
     const controller = new AbortController();
     const timeout = path.endsWith('/check') && path.startsWith('subscriptions/') ? 300000
-      : path === 'napcat/qrcode' ? 150000
+      : path === 'napcat/qrcode' || path === 'napcat/logout' ? 150000
         : path.endsWith('/preview') || path.endsWith('/probe') || path.endsWith('/sync') || path === 'test-deepseek' ? 120000 : path.startsWith('links/') ? 90000 : 30000;
     let timer;
     const expired = new Promise((_, reject) => { timer = setTimeout(() => {
@@ -945,6 +945,24 @@ export function useConsole() {
     catch (error) { state.qrcode = null; state.qrError = error.message; }
     void loadNapcat(true);
   });
+  const logoutNapcat = () => run('napcatLogout', async () => {
+    const account = state.napcat?.account;
+    const who = account?.nickname && account?.userId ? `${account.nickname}（QQ ${account.userId}）` : account?.userId ? `QQ ${account.userId}` : '当前登录的 QQ 账号';
+    if (!await askConfirmation({
+      title: '退出当前 QQ 登录？',
+      description: `将退出 ${who} 的 QQ 会话并清理当前登录缓存。`,
+      detail: '退出后机器人将暂停收发 QQ 消息，并自动备份清理登录缓存后重启 NapCat；之后可在本页重新扫码登录。',
+      confirmText: '退出 QQ 登录',
+      tone: 'danger'
+    })) return;
+    const version = generation;
+    state.qrcode = null; state.qrError = '';
+    const data = await post('napcat/logout');
+    if (version !== generation || disposed) return;
+    napcatGeneration++;
+    applyNapcat(data);
+    notify('已退出 QQ 登录，可重新扫码登录');
+  });
   onMounted(async () => {
     window.addEventListener('hashchange', syncHash); window.addEventListener('popstate', syncHash);
     try { state.adminSetupRequired = (await api('setup')).required; if (!state.adminSetupRequired) await enter(); }
@@ -1143,7 +1161,7 @@ export function useConsole() {
   return reactive({
     state, api, notify, navigate, refresh, login, cancelTotpLogin, logout, createAdmin, bindApiKey, toggle, saveConnection, saveModel, revealToken, testOnebot, testDeepseek, changePassword, saveRetentionDays, startTotpSetup, enableTotp, disableTotp, exportEncryptedBackup, loadLiveTasks, selectLiveTask, askConfirmation, resolveConfirmation,
     addGroupRule, removeGroupRule, saveGroups, addPrivateUser, removePrivateUser, savePrivateUsers,
-    refreshNapcat, connectNapcat, getQrcode,
+    refreshNapcat, connectNapcat, getQrcode, logoutNapcat,
     loadModels, openLogDetail, closeLogDetail, loadLogDetail,
     loadLinkStatus, saveLinks, toggleLinks, toggleMusic, bilibiliRequest, douyinRequest, douyinVerificationRequest,
     loadHealth, probeSubscription, saveHealthEmail, testHealthEmail, healthEmailDirty,
