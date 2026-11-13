@@ -120,14 +120,16 @@ onMounted(() => {
         <p><code>/健康 方案</code> · <code>/吃什么 早|中|晚</code> —— 查看当日或单餐具体食物量</p>
         <p><code>/记一餐 [早|中|晚] [菜品描述]</code>（支持同时附带食物图片）—— 自动估算热量与蛋白并重算余量</p>
         <p><code>/健康 今日</code> · <code>/健康 撤销</code> · <code>/健康 忌口 海鲜 牛奶</code> · <code>/健康 比例 30 40 30</code> · <code>/健康 推送 全部|早报|分餐|关闭</code></p>
-        <p>私聊发送 <code>/健康 同步</code> —— 生成个人 Bearer Token，用于下方 Apple 健康桥接接口。</p>
+        <p>私聊发送 <code>/健康 同步</code> —— 直接通过 QQ 发送 3 个 iPhone 快捷指令文件，并下发服务器地址与个人 Bearer Token（<code>/健康 快捷指令</code> 也可在群聊或私聊单独领取文件，无需任何 macOS 应用）。</p>
       </div>
 
       <div class="callout bridge-callout">
-        <b>iPhone 快捷指令（Shortcuts）对接端点</b>
+        <b>iPhone 快捷指令（Shortcuts）QQ 直发与网页备用安装</b>
+        <p>推荐直接在 QQ 发送 <code>/健康 同步</code>（私聊）或 <code>/健康 快捷指令</code>，由机器人直接发送 3 个已签名 <code>.shortcut</code> 文件；网页备用下载页：<a :href="`${bridgeBase}/tools/health/`" target="_blank" rel="noreferrer"><code>{{ bridgeBase }}/tools/health/</code></a></p>
         <p>1. 上传 Apple 健康步数 / 活动消耗 / 体重（用于动态修正每日 TDEE）：<code>POST {{ bridgeBase }}/bridge/health/sync</code></p>
         <p>2. 拉取 QQ 记一餐待写入营养队列：<code>GET {{ bridgeBase }}/bridge/health/pending</code></p>
         <p>3. 手机调用「记录健康样本」写入膳食能量与蛋白后确认出队：<code>POST {{ bridgeBase }}/bridge/health/ack</code></p>
+        <p>4. 桌面一键记一餐（优先直接识别剪贴板文字/截图，也支持粘贴编辑、拍照或相册 Base64 识图）：<code>POST {{ bridgeBase }}/bridge/health/log</code></p>
         <p>上述接口均使用请求头 <code>Authorization: Bearer &lt;私聊 /健康 同步 获取的个人 Token&gt;</code> 鉴权。</p>
       </div>
     </article>

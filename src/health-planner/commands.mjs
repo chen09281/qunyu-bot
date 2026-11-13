@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { groupRule, privateAllowed } from '../bot.mjs';
 import { messageSegments, resolveMessageImages } from '../images.mjs';
 import {
@@ -6,9 +9,11 @@ import {
   GOALS,
   MEAL_LABELS,
   beijingDateParts,
+  mealSourceLabel,
   parseDietStyleToken,
   parseMealType
 } from './nutrition.mjs';
+import { listShortcutInstallers } from './tool-downloads.mjs';
 
 const qq = value => /^\d{5,20}$/.test(String(value));
 
@@ -66,6 +71,9 @@ export function parseHealthCommand(event) {
   if (['同步', '苹果', 'apple', 'health', '令牌', 'token'].includes(sub.toLowerCase())) {
     return { type: 'sync', reset: /重置|刷新|reset/i.test(tail), hasMedia };
   }
+  if (['快捷指令', '快捷', '苹果指令', 'shortcut', 'shortcuts'].includes(sub.toLowerCase())) {
+    return { type: 'shortcuts', hasMedia };
+  }
   if (['删除数据', '清空档案', '注销'].includes(sub)) return { type: 'delete_data', confirm: /确认/.test(tail), hasMedia };
 
   // Treat `/健康 早` / `/健康 午餐` as quick meal query
@@ -89,23 +97,92 @@ export function healthHelpText() {
     '4️⃣ 个性调整与定时推送：',
     '   /健康 忌口 海鲜 牛奶 ｜ /健康 偏好 外食 ｜ /健康 比例 30 40 30',
     '   /健康 推送 全部|早报|分餐|关闭|私聊|群聊',
-    '5️⃣ 对接 Apple 健康（私聊使用）：',
-    '   私聊发送 /健康 同步 获取个人同步令牌与苹果快捷指令教程'
+    '5️⃣ 对接 Apple 健康（QQ 直接收快捷指令，无需 macOS 应用）：',
+    '   私聊发送 /健康 同步 获取个人 Token 与 iPhone 快捷指令文件；或发送 /健康 快捷指令 直接发送安装包'
   ].join('\n');
 }
 
 export class HealthPlannerCommands {
-  constructor(configStore, service, { onebot, log = () => {}, now = Date.now } = {}) {
+  constructor(configStore, service, { onebot, log = () => {}, now = Date.now, dataDir = '', napcatMediaDir = process.env.NAPCAT_MEDIA_DIR ?? '' } = {}) {
     this.store = configStore;
     this.service = service;
     this.onebot = onebot;
     this.log = log;
     this.now = now;
+    this.dataDir = dataDir || (service?.plannerStore?.dir ? dirname(service.plannerStore.dir) : '');
+    this.napcatMediaDir = napcatMediaDir;
     this.seen = new Map();
     this.cooldowns = new Map();
     this.active = new Set();
     this.jobs = new Set();
     this.closed = false;
+  }
+
+  /**
+   * Stage Apple-signed .shortcut files in shared media dir and push directly via QQ file transfer.
+   */
+  async sendShortcutFiles(event, { isGroup }) {
+    const installers = listShortcutInstallers();
+    if (!installers.length || !this.dataDir) {
+      return { total: installers.length, uploaded: 0, failed: installers.length };
+    }
+    const mediaRoot = join(this.dataDir, 'media');
+    let mediaStat = null;
+    try {
+      mediaStat = lstatSync(mediaRoot);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (mediaStat?.isSymbolicLink()) {
+      throw new Error('媒体共享目录不能是符号链接');
+    }
+    mkdirSync(mediaRoot, { recursive: true, mode: 0o755 });
+    if (lstatSync(mediaRoot).isSymbolicLink()) {
+      throw new Error('媒体共享目录不能是符号链接');
+    }
+    chmodSync(mediaRoot, 0o755);
+
+    const jobId = randomUUID();
+    const stageDir = join(mediaRoot, jobId);
+    mkdirSync(stageDir, { mode: 0o755 });
+    chmodSync(stageDir, 0o755);
+
+    let uploaded = 0;
+    let failed = 0;
+    const action = isGroup ? 'upload_group_file' : 'upload_private_file';
+    const target = isGroup ? { group_id: event.group_id } : { user_id: event.user_id };
+    const cleanup = () => {
+      try {
+        rmSync(stageDir, { recursive: true, force: true });
+      } catch {}
+    };
+
+    try {
+      for (const item of installers) {
+        const localFile = join(stageDir, item.name);
+        writeFileSync(localFile, item.bytes, { flag: 'wx', mode: 0o644 });
+        chmodSync(localFile, 0o644);
+        const uploadPath = this.napcatMediaDir ? join(this.napcatMediaDir, jobId, item.name) : localFile;
+        try {
+          await this.onebot(action, {
+            ...target,
+            file: uploadPath,
+            name: item.qqFilename
+          }, this.store.config, 120);
+          uploaded += 1;
+        } catch (error) {
+          failed += 1;
+          this.log('warn', `QQ 发送快捷指令文件 ${item.qqFilename} 失败：${error?.message || error}`, {
+            source: 'health_planner',
+            userId: String(event.user_id || '')
+          });
+        }
+      }
+    } finally {
+      if (failed > 0) setTimeout(cleanup, 300000).unref();
+      else cleanup();
+    }
+    return { total: installers.length, uploaded, failed };
   }
 
   canHandle(event) {
@@ -224,9 +301,26 @@ export class HealthPlannerCommands {
       return this.sendReply(event, healthHelpText());
     }
 
+    if (parsed.type === 'shortcuts') {
+      const base = String(this.store.config.consolePublicUrl || '').trim().replace(/\/+$/, '') || 'http://你的服务器地址:端口';
+      const upload = await this.sendShortcutFiles(event, { isGroup }).catch(() => ({ total: 3, uploaded: 0, failed: 3 }));
+      const lines = [
+        upload.uploaded > 0
+          ? `📱 已通过 QQ 发送 ${upload.uploaded} 个 iPhone 快捷指令文件（无需安装任何 macOS 应用，手机 QQ 点开文件 →「用其他应用打开 / 快捷指令」即可直接导入）：`
+          : `📱 QQ 文件发送暂未确认成功，请加机器人好友后私聊「/健康 同步」，或用 iPhone Safari 打开：${base}/tools/health/`,
+        `   • 桌面一键记一餐.shortcut（第 1 项「识别剪贴板内容」可直接识别复制的菜名文字或截图）`,
+        `   • 同步Apple健康到Bot.shortcut（上传今日步数/活动能量/体重）`,
+        `   • Bot记餐写回Apple健康.shortcut（同步 QQ /记一餐 待写入记录）`,
+        isGroup
+          ? `⚠️ 导入时需要的个人 Token 请加好友后在**私聊**发送「/健康 同步」领取（不在群内发送私密令牌）。`
+          : `🔑 如还未复制服务器地址与个人 Token，可继续发送「/健康 同步」查看。`
+      ];
+      return this.sendReply(event, lines.join('\n'));
+    }
+
     if (parsed.type === 'sync') {
       if (isGroup) {
-        return this.sendReply(event, '⚠️ Apple 健康同步令牌属于个人敏感凭据，请加机器人好友后在**私聊**中发送「/健康 同步」查看（若之前未建档，请先在授权群发一次 /健康 录入）。');
+        return this.sendReply(event, '⚠️ Apple 健康同步令牌属于个人敏感凭据，请加机器人好友后在**私聊**中发送「/健康 同步」领取（Bot 会直接发给你快捷指令文件与 Token）；群里也可先发「/健康 快捷指令」领取空白快捷指令文件。');
       }
       const user = parsed.reset
         ? (() => {
@@ -239,22 +333,28 @@ export class HealthPlannerCommands {
             return { user: u, token: u.syncToken };
           })();
       const base = String(this.store.config.consolePublicUrl || '').trim().replace(/\/+$/, '') || 'http://你的服务器地址:端口';
+      const upload = await this.sendShortcutFiles(event, { isGroup: false }).catch(() => ({ total: 3, uploaded: 0, failed: 3 }));
+      const deliveryLine = upload.uploaded > 0
+        ? `📲 已通过 QQ 发送 ${upload.uploaded} 个 iPhone 快捷指令文件（无需 macOS 应用，不用打开浏览器；手机 QQ 点开文件 →「用其他应用打开 / 快捷指令」导入）：`
+        : `📲 QQ 快捷指令文件暂未发送成功，请用 iPhone Safari 打开安装页下载：`;
       const lines = [
         `🍎 Apple 健康同步配置（仅你自己可见）：`,
+        `服务器地址：${base}`,
         `个人同步 Token：${user.token}`,
         `（发送「/健康 同步 重置」可立即作废旧 Token 并换新）`,
         ``,
-        `1️⃣ iPhone 步数/活动消耗/体重 → 推送到 Bot：`,
-        `   URL：POST ${base}/bridge/health/sync`,
-        `   Header：Authorization: Bearer ${user.token}`,
-        `   JSON 体：{"steps": 步数, "activeEnergyKcal": 活动能量, "weightKg": 体重}`,
+        deliveryLine,
+        `   1. 桌面一键记一餐.shortcut —— 复制外卖清单/菜名文字或截图后点「识别剪贴板内容」，即刻走 DeepSeek/识图记餐并写入 Apple 健康`,
+        `   2. 同步Apple健康到Bot.shortcut —— 传步数/活动消耗/体重给 Bot 重算预算`,
+        `   3. Bot记餐写回Apple健康.shortcut —— 把 QQ 记餐写回 Apple 健康`,
+        `   （备用网页安装页：${base}/tools/health/）`,
         ``,
-        `2️⃣ Bot 记一餐估算营养 → 写回 Apple 健康：`,
-        `   拉取待写入：GET ${base}/bridge/health/pending`,
-        `   写入后确认：POST ${base}/bridge/health/ack（JSON 体 {"ids": [已写入条目id列表]}）`,
-        `   同样在 Header 填 Authorization: Bearer ${user.token}`,
-        ``,
-        `💡 快捷指令动作提示：查找健康样本 → 获取 URL 内容(POST) 上传步数/能量；拉取 pending 后循环用「记录健康样本」写入膳食能量(千卡)和蛋白质(克)。如使用锁屏自动运行，请在手机设置允许快捷指令读取/写入健康数据及锁屏运行。`
+        `🔗 高级接口列表：`,
+        `   1. 上传步数/活动/体重：POST ${base}/bridge/health/sync`,
+        `   2. 拉取待写回营养队列：GET ${base}/bridge/health/pending`,
+        `   3. 确认写回出队：POST ${base}/bridge/health/ack（JSON {"ids": [...]}）`,
+        `   4. 桌面一键记一餐：POST ${base}/bridge/health/log`,
+        `   鉴权请求头均为：Authorization: Bearer ${user.token}`
       ];
       return this.sendReply(event, lines.join('\n'));
     }
@@ -376,7 +476,7 @@ export class HealthPlannerCommands {
         });
         const rem = updatedPlan.plan.remainingBudget;
         const lines = [
-          `🍽️ 已记录【${MEAL_LABELS[log.mealType]}】(${log.source === 'vision' ? '图片识别估算' : '文字录入/估算'})`,
+          `🍽️ 已记录【${MEAL_LABELS[log.mealType]}】(${mealSourceLabel(log.source)})`,
           `内容：${log.summary}`,
           `摄入：${log.calories} kcal ｜ 蛋白质 ${log.proteinG}g ｜ 碳水 ${log.carbsG}g ｜ 脂肪 ${log.fatG}g`,
           `今日剩余预算：${rem.calories} kcal ｜ 剩余蛋白 ${rem.proteinG}g`,

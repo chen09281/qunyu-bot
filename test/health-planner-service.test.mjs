@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../src/config.mjs';
 import { HealthPlannerStore } from '../src/health-planner/store.mjs';
 import { HealthPlannerService } from '../src/health-planner/service.mjs';
 import { HealthPlannerCommands, parseHealthCommand } from '../src/health-planner/commands.mjs';
+import { mealSourceLabel } from '../src/health-planner/nutrition.mjs';
 
 function makeTempDir(t) {
   const dir = mkdtempSync(join(tmpdir(), 'qqbot-health-svc-'));
@@ -205,4 +206,212 @@ test('parseHealthCommand 解析指令前缀与参数边界', () => {
   assert.equal(parseHealthCommand(event('#饮食 方案'))?.type, 'plan');
   assert.equal(parseHealthCommand(event('/吃什么 晚'))?.mealType, 'dinner');
   assert.equal(parseHealthCommand(event('/记一餐 早餐 牛奶麦片'))?.mealType, 'breakfast');
+});
+
+test('mealSourceLabel、logMealFromBridge 与字符串 ids 确认闭环', async t => {
+  assert.equal(mealSourceLabel('vision'), '图片识别估算');
+  assert.equal(mealSourceLabel('ai_text'), 'DeepSeek/AI 模型估算');
+  assert.equal(mealSourceLabel('text'), '文字录入/本地估算');
+
+  const dataDir = makeTempDir(t);
+  const configStore = await openStore(dataDir, 'test1234');
+  configStore.save({
+    enabled: true,
+    botId: '99999',
+    allowedPrivateUsers: ['40001'],
+    deepseekKey: 'test-ds-key',
+    consolePublicUrl: 'https://bot.example.com'
+  });
+
+  const plannerStore = new HealthPlannerStore(dataDir);
+  const user = plannerStore.upsertProfile('40001', { userName: '小李', groupId: '10001' }, {
+    sex: 'male', age: 28, heightCm: 176, weightKg: 70, bodyFatPct: null,
+    goal: 'cut', activityLevel: 'moderate', dietStyle: 'balanced', dislikes: [], mealRatios: { breakfast: 0.3, lunch: 0.4, dinner: 0.3 }
+  });
+
+  const service = new HealthPlannerService(plannerStore, configStore, {
+    now: () => Date.parse('2026-11-13T12:15:00+08:00'),
+    askModel: async () => JSON.stringify({
+      mealType: 'lunch',
+      summary: '塔斯汀鸡肉汉堡1个+鸡块3块',
+      calories: 920,
+      proteinG: 42,
+      carbsG: 95,
+      fatG: 39
+    }),
+    askVisionModel: async () => JSON.stringify({
+      mealType: 'dinner',
+      summary: '清蒸鲈鱼配糙米饭',
+      calories: 510,
+      proteinG: 44,
+      carbsG: 52,
+      fatG: 12
+    })
+  });
+
+  // Unauthenticated / invalid inputs
+  assert.equal((await service.logMealFromBridge('wrong', { text: '米饭' })).status, 401);
+  assert.equal((await service.logMealFromBridge(user.syncToken, {})).status, 400);
+  const badImg = await service.logMealFromBridge(user.syncToken, {
+    imageBase64: Buffer.from('not-an-image').toString('base64')
+  });
+  assert.equal(badImg.status, 400);
+
+  const tooBig = await service.logMealFromBridge(user.syncToken, {
+    imageBase64: Buffer.alloc(3 * 1024 * 1024 + 64, 0xff).toString('base64')
+  });
+  assert.equal(tooBig.status, 413);
+
+  // Text AI log (DeepSeek/AI 模型估算)
+  const textRes = await service.logMealFromBridge(user.syncToken, { mealType: 'auto', text: '塔斯汀鸡肉汉堡+鸡块' });
+  assert.equal(textRes.status, 200);
+  assert.equal(textRes.body.ok, true);
+  assert.equal(textRes.body.source, 'ai_text');
+  assert.equal(textRes.body.sourceLabel, 'DeepSeek/AI 模型估算');
+  assert.match(textRes.body.notificationText, /DeepSeek\/AI 模型估算/);
+
+  // Image vision log with valid PNG magic bytes
+  const tinyPng = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de', 'hex');
+  const imgRes = await service.logMealFromBridge(user.syncToken, {
+    mealType: 'dinner',
+    imageBase64: tinyPng.toString('base64')
+  });
+  assert.equal(imgRes.status, 200);
+  assert.equal(imgRes.body.source, 'vision');
+  assert.equal(imgRes.body.sourceLabel, '图片识别估算');
+  assert.equal(imgRes.body.calories, 510);
+
+  // Ack supports newline-separated string produced by Apple Shortcuts Repeat Results
+  const ackRes = service.ackPendingAppleNutrition(user.syncToken, {
+    ids: `${textRes.body.id}\n${imgRes.body.id}`
+  });
+  assert.equal(ackRes.status, 200);
+  assert.equal(ackRes.body.acked, 2);
+  assert.equal(ackRes.body.remaining, 0);
+
+  // QQ reply also prints DeepSeek/AI 模型估算 instead of vague 文字录入/估算
+  const sent = [];
+  const cmds = new HealthPlannerCommands(configStore, service, {
+    onebot: async (action, params) => { sent.push({ action, params }); return {}; }
+  });
+  cmds.receive({
+    post_type: 'message',
+    message_type: 'private',
+    self_id: '99999',
+    user_id: '40001',
+    message_id: 99,
+    sender: { nickname: '小李' },
+    message: [{ type: 'text', data: { text: '/记一餐 午餐 鸡胸肉沙拉' } }]
+  });
+  await Promise.all([...cmds.jobs]);
+  const replyText = sent.at(-1).params.message.map(s => s.data?.text || '').join('');
+  assert.match(replyText, /DeepSeek\/AI 模型估算/);
+});
+
+test('HealthPlannerCommands 支持 QQ 直发已签名 iPhone 快捷指令文件并清理临时目录', async t => {
+  assert.deepEqual(
+    parseHealthCommand({ message: [{ type: 'text', data: { text: '/健康 快捷指令' } }] }),
+    { type: 'shortcuts', hasMedia: false }
+  );
+  assert.deepEqual(
+    parseHealthCommand({ message: [{ type: 'text', data: { text: '#健康 shortcut' } }] }),
+    { type: 'shortcuts', hasMedia: false }
+  );
+
+  const dataDir = makeTempDir(t);
+  const configStore = await openStore(dataDir);
+  configStore.save({
+    enabled: true,
+    consolePublicUrl: 'https://bot.example.com',
+    allowedGroups: ['20001'],
+    allowedPrivateUsers: ['50001']
+  });
+  const plannerStore = new HealthPlannerStore(dataDir);
+  const sent = [];
+  const onebot = async (action, params) => {
+    sent.push({ action, params });
+    return {};
+  };
+  const service = new HealthPlannerService(plannerStore, configStore, { onebot });
+  service.configure({ enabled: true });
+  const cmds = new HealthPlannerCommands(configStore, service, {
+    onebot,
+    dataDir,
+    napcatMediaDir: '/app/qqbot-media'
+  });
+
+  // 1. 私聊 /健康 同步：直接发送 3 个 .shortcut 文件，并下发可复制的服务器地址与个人 Token
+  cmds.receive({
+    post_type: 'message',
+    message_type: 'private',
+    self_id: '99999',
+    user_id: '50001',
+    message_id: 101,
+    sender: { nickname: '小陈' },
+    message: [{ type: 'text', data: { text: '/健康 同步' } }]
+  });
+  await Promise.all([...cmds.jobs]);
+
+  const privateUploads = sent.filter(item => item.action === 'upload_private_file');
+  assert.equal(privateUploads.length, 3);
+  assert.deepEqual(
+    privateUploads.map(item => item.params.name),
+    ['桌面一键记一餐.shortcut', '同步Apple健康到Bot.shortcut', 'Bot记餐写回Apple健康.shortcut']
+  );
+  for (const upload of privateUploads) {
+    assert.equal(upload.params.user_id, '50001');
+    assert.match(upload.params.file, /^\/app\/qqbot-media\/[0-9a-f-]+\/[^/]+\.shortcut$/);
+  }
+  assert.deepEqual(readdirSync(join(dataDir, 'media')), []);
+
+  const privateMsgs = sent.filter(item => item.action === 'send_private_msg');
+  const lastPrivateText = privateMsgs.at(-1).params.message.map(s => s.data?.text || '').join('');
+  assert.match(lastPrivateText, /服务器地址：https:\/\/bot\.example\.com/);
+  assert.match(lastPrivateText, /个人同步 Token：/);
+  const issuedToken = plannerStore.getUser('50001')?.syncToken;
+  assert.ok(issuedToken);
+  assert.ok(lastPrivateText.includes(issuedToken));
+
+  // 2. 群聊 /健康 快捷指令：通过 upload_group_file 发送 3 个文件且不泄露个人 Token
+  sent.length = 0;
+  cmds.receive({
+    post_type: 'message',
+    message_type: 'group',
+    group_id: '20001',
+    self_id: '99999',
+    user_id: '50002',
+    message_id: 102,
+    sender: { nickname: '小周' },
+    message: [{ type: 'text', data: { text: '/健康 快捷指令' } }]
+  });
+  await Promise.all([...cmds.jobs]);
+
+  const groupUploads = sent.filter(item => item.action === 'upload_group_file');
+  assert.equal(groupUploads.length, 3);
+  assert.deepEqual(
+    groupUploads.map(item => item.params.name),
+    ['桌面一键记一餐.shortcut', '同步Apple健康到Bot.shortcut', 'Bot记餐写回Apple健康.shortcut']
+  );
+  for (const upload of groupUploads) {
+    assert.equal(upload.params.group_id, '20001');
+    assert.match(upload.params.file, /^\/app\/qqbot-media\/[0-9a-f-]+\/[^/]+\.shortcut$/);
+  }
+  assert.deepEqual(readdirSync(join(dataDir, 'media')), []);
+
+  const groupMsgs = sent.filter(item => item.action === 'send_group_msg');
+  const groupText = groupMsgs.map(item => item.params.message.map(s => s.data?.text || '').join('')).join('\n');
+  assert.ok(!groupText.includes(issuedToken));
+
+  // 3. 符号链接防御：data/media 若为符号链接则拒绝写入
+  const symDir = makeTempDir(t);
+  const symTarget = makeTempDir(t);
+  symlinkSync(symTarget, join(symDir, 'media'));
+  const symCmds = new HealthPlannerCommands(configStore, service, {
+    onebot,
+    dataDir: symDir
+  });
+  await assert.rejects(
+    symCmds.sendShortcutFiles({ user_id: '50001' }, { isGroup: false }),
+    /符号链接/
+  );
 });

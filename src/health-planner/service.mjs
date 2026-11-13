@@ -7,6 +7,7 @@ import {
   fallbackEstimateMealText,
   formatPlanText,
   inferCurrentMealSlot,
+  mealSourceLabel,
   normalizeDislikes,
   normalizeMealRatios,
   parseMealType,
@@ -41,9 +42,48 @@ function extractJsonObject(raw) {
   }
 }
 
+const MAX_BRIDGE_IMAGE_BYTES = 3 * 1024 * 1024;
+
+function detectImageMime(buffer) {
+  if (!buffer || buffer.length < 12) return null;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47
+    && buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a) return 'image/png';
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  const head = buffer.subarray(0, 6).toString('ascii');
+  if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
+  return null;
+}
+
+/** Decode and verify a bridge-uploaded base64 image using binary magic bytes rather than trusting MIME labels. */
+function decodeBridgeImageBase64(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return { dataUrl: '' };
+  if (raw.length > MAX_BRIDGE_IMAGE_BYTES * 2) {
+    return { error: '图片体积超过 3 MiB 上限，请缩放后再试', status: 413 };
+  }
+  const stripped = raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/i, '').replace(/\s+/g, '');
+  if (!stripped || stripped.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(stripped)) {
+    return { error: '图片 Base64 编码无效，请重新选择图片' };
+  }
+  const buffer = Buffer.from(stripped, 'base64');
+  if (!buffer.length || buffer.length > MAX_BRIDGE_IMAGE_BYTES) {
+    return { error: '图片体积超过 3 MiB 上限，请缩放后再试', status: 413 };
+  }
+  const mime = detectImageMime(buffer);
+  if (!mime) {
+    return { error: '仅支持 JPEG、PNG、WebP 或 GIF 图片格式' };
+  }
+  return { dataUrl: `data:${mime};base64,${buffer.toString('base64')}` };
+}
+
 function normalizeFiniteNumber(value) {
   if (value === null || value === undefined || value === '') return undefined;
-  const n = Number(value);
+  const cleaned = typeof value === 'string' ? value.trim().replace(/,/g, '') : value;
+  if (cleaned === '') return undefined;
+  const n = Number(cleaned);
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
@@ -223,7 +263,7 @@ export class HealthPlannerService {
     return user;
   }
 
-  async estimateAndLogMeal({ event = null, userId, mealTypeHint = '', textDescription = '', imageUrls = [] }) {
+  async estimateAndLogMeal({ event = null, userId, mealTypeHint = '', textDescription = '', imageUrls = [], inlineImages = [] }) {
     const user = this.plannerStore.getUser(userId);
     if (!user?.profile) throw new Error('请先发送「/健康 录入 男/女 年龄 身高 体重 [减脂/维持/增肌]」录入档案后再记餐');
     const { day, hour } = beijingDateParts(this.now());
@@ -232,17 +272,19 @@ export class HealthPlannerService {
     let parsed = null;
     let source = 'text';
 
-    if (imageUrls.length > 0) {
+    if (imageUrls.length > 0 || inlineImages.length > 0) {
       if (!this.settings.aiFoodVision || this.configStore.config.imageRecognitionEnabled === false) {
         throw new Error('管理员已在后台关闭图片识图功能，可改用文字描述（例如：/记一餐 午餐 牛肉面一碗 550大卡）');
       }
-      if (!this.prepareInputImages || !this.askVisionModel) {
+      if (!this.askVisionModel || (imageUrls.length > 0 && !this.prepareInputImages)) {
         throw new Error('当前识图服务未就绪，请稍后再试或使用文字记录');
       }
-      const prepared = await this.prepareInputImages(imageUrls);
+      const images = inlineImages.length > 0
+        ? inlineImages
+        : (await this.prepareInputImages(imageUrls)).images;
       const rawJson = await this.askVisionModel({
         event,
-        images: prepared.images,
+        images,
         maxTokens: 700,
         prompt: [
           '请识别图中的食物，结合常见份量估算整餐总热量（kcal）以及蛋白质、碳水化合物、脂肪（g）。',
@@ -366,12 +408,85 @@ export class HealthPlannerService {
   ackPendingAppleNutrition(bearerToken, payload) {
     const user = this.plannerStore.findUserByToken(bearerToken);
     if (!user) return { status: 401, body: { error: '同步令牌无效或已重置' } };
-    const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+    const rawIds = payload?.ids;
+    const ids = Array.isArray(rawIds)
+      ? rawIds
+      : typeof rawIds === 'string'
+        ? rawIds.split(/[\s,]+/).filter(Boolean)
+        : [];
     const acked = this.plannerStore.ackAppleSync(user.userId, ids);
     return {
       status: 200,
       body: { ok: true, acked, remaining: this.plannerStore.pullPendingAppleSync(user.userId).length }
     };
+  }
+
+  /**
+   * Log a meal from the iPhone Shortcut quick-entry bridge (text and/or base64 image).
+   * Returns flat top-level nutrition numbers so Apple Shortcuts can consume them directly.
+   */
+  async logMealFromBridge(bearerToken, payload) {
+    const user = this.plannerStore.findUserByToken(bearerToken);
+    if (!user) return { status: 401, body: { error: '同步令牌无效或已重置' } };
+    if (!this.enabled()) return { status: 503, body: { error: '健康饮食管家功能当前已在后台暂停' } };
+    if (!user.profile) {
+      return { status: 400, body: { error: '请先在 QQ 发送「/健康 录入 男/女 年龄 身高 体重 [减脂/维持/增肌]」录入档案' } };
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { status: 400, body: { error: '请求体必须为 JSON 对象' } };
+    }
+
+    const rawMealType = typeof payload.mealType === 'string' ? payload.mealType.trim() : '';
+    const mealTypeHint = ['auto', '自动', '自动判断', '自动判断当前餐次'].includes(rawMealType.toLowerCase()) ? '' : rawMealType;
+    const textDescription = String(payload.text ?? payload.description ?? '').trim().slice(0, 500);
+    const decodedImage = decodeBridgeImageBase64(payload.imageBase64);
+    if (decodedImage.error) {
+      return { status: decodedImage.status || 400, body: { error: decodedImage.error } };
+    }
+    const inlineImages = decodedImage.dataUrl ? [decodedImage.dataUrl] : [];
+    if (!inlineImages.length && !textDescription) {
+      return { status: 400, body: { error: '请提供食物描述（text）或食物照片（imageBase64）' } };
+    }
+
+    try {
+      const { log, appleSyncItem, updatedPlan } = await this.estimateAndLogMeal({
+        userId: user.userId,
+        mealTypeHint,
+        textDescription,
+        inlineImages
+      });
+      const rem = updatedPlan.plan.remainingBudget;
+      const sourceLabel = mealSourceLabel(log.source);
+      const mealLabel = MEAL_LABELS[log.mealType] || log.mealType;
+      const notificationText = `${mealLabel}：${log.summary}\n${log.calories} kcal ｜ 蛋白 ${log.proteinG}g（${sourceLabel}）\n今日剩余：${rem.calories} kcal ｜ 蛋白 ${rem.proteinG}g`;
+      this.log('info', `已接收快捷指令记餐（用户 ${user.userId}，${log.mealType}，${log.calories} kcal，来源 ${log.source}）`, {
+        source: 'health_planner',
+        userId: user.userId
+      });
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          day: updatedPlan.plan.day,
+          id: log.id,
+          mealType: log.mealType,
+          mealLabel,
+          source: log.source,
+          sourceLabel,
+          summary: log.summary,
+          calories: log.calories,
+          proteinG: log.proteinG,
+          carbsG: log.carbsG,
+          fatG: log.fatG,
+          remainingCalories: rem.calories,
+          remainingProteinG: rem.proteinG,
+          notificationText,
+          appleSyncItem
+        }
+      };
+    } catch (error) {
+      return { status: 400, body: { error: error?.message || '记餐估算失败，请稍后重试' } };
+    }
   }
 
   // ---- Scheduled Push Scheduler ----

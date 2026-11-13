@@ -32,13 +32,17 @@
 - `/健康 今日`：查看今天累计摄入与剩余配额。
 - `/健康 撤销`：撤销今天最近一次记一餐记录（同时取消未确认写入的 Apple 健康待同步条目）。
 
-### 5. Apple 健康双向同步与数据清理（仅私聊）
-- 私聊发送 `/健康 同步`：查看或签发你的个人 Bearer Token（发送 `/健康 同步 重置` 可立即轮换并作废旧令牌）。群聊发送会被拦截并引导至私聊，不会在群内泄露令牌。
+### 5. Apple 健康双向同步与数据清理（仅私聊 / 快捷指令直发）
+- 私聊发送 `/健康 同步`：查看或签发你的个人 Bearer Token（发送 `/健康 同步 重置` 可立即轮换并作废旧令牌），同时机器人会直接把 3 个 Apple 已签名 `.shortcut` 快捷指令文件发到当前 QQ 会话，并附上纯文本的服务器地址与个人 Token 方便手机长按复制。群聊发送会被拦截并引导至私聊，不会在群内泄露令牌。
+- 群聊或私聊发送 `/健康 快捷指令`：仅通过 QQ 直接发送 3 个 `.shortcut` 文件（不附带任何个人 Token）。无需安装任何 macOS 应用，在 iPhone QQ 中点击文件选择「用其他应用打开 → 快捷指令」即可直接安装。
 - 私聊发送 `/健康 删除数据 确认`：即使「健康饮食管家」插件开关已暂停（机器人总开关开启时），仍可在私聊永久清除个人健康档案、饮食记录、Apple 同步数据及令牌。
 
-## Apple 健康「快捷指令」桥接接口
+## Apple 健康「快捷指令」QQ 直发与桥接接口
 
-桥接端点直接挂载在服务根路径 `/bridge/health/*`，采用个人 `Authorization: Bearer <token>` 鉴权，不走管理后台登录态和同源头限制，单 IP 限制每分钟 60 次请求，请求体上限 64 KiB：
+- **QQ 内直接发送 + 网页备用安装页**：发送 `/健康 同步`（私聊）或 `/健康 快捷指令` 即可在 QQ 内直接接收 3 个已签名 `.shortcut`：`桌面一键记一餐.shortcut`、`同步Apple健康到Bot.shortcut`、`Bot记餐写回Apple健康.shortcut`（备用网页：`<后台地址>/tools/health/`）。安装包内均不包含任何个人地址或 Token，通过 Apple 导入提问本地保存；用户无需任何 macOS 应用。
+  - **桌面一键记一餐**：默认第一项为「识别剪贴板内容（文字 / 截图）」，读取手机剪贴板中的图片（自动缩放并转 JPEG Base64 调用 `/bridge/health/log` 识图）或文字（直连 DeepSeek 估算并入账），同时提供「粘贴或输入文字（自动带入剪贴板）」「拍照识别」与「从相册选图」。
+
+桥接端点直接挂载在服务根路径 `/bridge/health/*`，采用个人 `Authorization: Bearer <token>` 鉴权，不走管理后台登录态和同源头限制，单 IP 限制每分钟 60 次请求（`sync` / `ack` 请求体上限 64 KiB，`log` 支持图片 Base64 上限 5 MiB）：
 
 1. **上传 Apple 健康实测活动数据 → 动态修正今日 TDEE**
    - `POST <后台地址>/bridge/health/sync`
@@ -57,7 +61,12 @@
 
 2. **拉取 Bot 估算的营养记录 → 写回 Apple 健康**
    - `GET <后台地址>/bridge/health/pending?limit=20`：返回尚未确认写入的膳食能量（`calories`）、蛋白质（`proteinG`）、碳水（`carbsG`）、脂肪（`fatG`）列表。
-   - `POST <后台地址>/bridge/health/ack`：在「快捷指令」循环调用 `记录健康样本` 写入 Apple 健康后，提交 `{"ids": ["..."]}` 标记为已同步，避免重复写入。
+   - `POST <后台地址>/bridge/health/ack`：在「快捷指令」循环调用 `记录健康样本` 写入 Apple 健康后，提交 `{"ids": ["..."]}`（也支持换行/逗号分隔的字符串）标记为已同步，避免重复写入。
+
+3. **桌面一键记一餐（优先直接识别剪贴板文字/截图，支持粘贴/拍照/相册）**
+   - `POST <后台地址>/bridge/health/log`
+   - JSON Body：`{"mealType": "auto|breakfast|lunch|dinner", "text": "...", "imageBase64": "..."}`（`text` 与 `imageBase64` 至少提供一个；图片仅接受 JPEG / PNG / WEBP / GIF 且解码后不超过 3 MiB）。
+   - 调用文本 DeepSeek 或多模态识图模型估算营养素后入账，并返回 `calories`、`proteinG`、`carbsG`、`fatG`、`id` 与 `notificationText`，供快捷指令直接写回 Apple 健康并确认出队。
 
 ## 隐私与安全设计
 

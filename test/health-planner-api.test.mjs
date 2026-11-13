@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -181,4 +182,134 @@ test('前端控制台 useConsole 支持 health-planner 插件导航、加载与�
   c.state.healthPlannerSettings.renderCard = false;
   await c.saveHealthPlannerSettings(false);
   assert.equal(c.state.healthPlanner.settings.renderCard, false);
+});
+
+test('Apple Shortcuts 安装页 (/tools/health/*) 与快捷记餐端到端 API (/bridge/health/log)', async t => {
+  const { app, url } = await fixture(t);
+
+  // 1. Public shortcuts portal redirect, HTML page, external CSP assets, manifest, and signed .shortcut files
+  const redirect = await fetch(`${url}/tools/health`, { redirect: 'manual' });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), '/tools/health/');
+
+  const pageRes = await fetch(`${url}/tools/health/`);
+  assert.equal(pageRes.status, 200);
+  assert.match(pageRes.headers.get('content-type'), /text\/html/);
+  const html = await pageRes.text();
+  assert.match(html, /\/tools\/health\/health\.css/);
+  assert.match(html, /\/tools\/health\/health\.js/);
+  assert.match(html, /health-quick-log-meal\.shortcut/);
+  assert.match(html, /health-sync-apple-to-bot\.shortcut/);
+  assert.match(html, /health-meals-bot-to-apple\.shortcut/);
+
+  const cssRes = await fetch(`${url}/tools/health/health.css`);
+  assert.equal(cssRes.status, 200);
+  assert.match(cssRes.headers.get('content-type'), /text\/css/);
+
+  const jsRes = await fetch(`${url}/tools/health/health.js`);
+  assert.equal(jsRes.status, 200);
+  assert.match(jsRes.headers.get('content-type'), /javascript/);
+
+  const manifestRes = await fetch(`${url}/tools/health/manifest.json`);
+  assert.equal(manifestRes.status, 200);
+  const manifest = await manifestRes.json();
+  assert.equal(manifest.files.length, 3);
+  for (const file of manifest.files) {
+    assert.equal(file.available, true);
+    assert.ok(file.bytes > 1000);
+    assert.match(file.sha256, /^[a-f0-9]{64}$/);
+
+    const headRes = await fetch(`${url}${file.url}`, { method: 'HEAD' });
+    assert.equal(headRes.status, 200);
+    assert.equal(Number(headRes.headers.get('content-length')), file.bytes);
+    assert.equal((await headRes.arrayBuffer()).byteLength, 0);
+
+    const binRes = await fetch(`${url}${file.url}`);
+    assert.equal(binRes.status, 200);
+    assert.equal(binRes.headers.get('content-type'), 'application/octet-stream');
+    const bytes = Buffer.from(await binRes.arrayBuffer());
+    assert.equal(bytes.subarray(0, 4).toString('ascii'), 'AEA1', `${file.name} 应为 Apple 已签名快捷指令`);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
+  }
+
+  assert.equal((await fetch(`${url}/tools/health/`, { method: 'POST' })).status, 405);
+  assert.equal((await fetch(`${url}/tools/health/nonexistent`)).status, 404);
+
+  // 2. POST /bridge/health/log end-to-end auth, paused 503 guard, validation, text AI log, PNG vision log, and string ack
+  const user = app.healthPlannerStore.upsertProfile('50002', { userName: '阿强', groupId: '10001' }, {
+    sex: 'male', age: 29, heightCm: 175, weightKg: 74, bodyFatPct: null,
+    goal: 'cut', activityLevel: 'moderate', dietStyle: 'balanced', dislikes: [], mealRatios: { breakfast: 0.3, lunch: 0.4, dinner: 0.3 }
+  });
+
+  const pausedRes = await fetch(`${url}/bridge/health/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.syncToken}` },
+    body: JSON.stringify({ text: '全麦面包2片' })
+  });
+  assert.equal(pausedRes.status, 503);
+
+  app.store.save({ enabled: true, deepseekKey: 'test-ds-key' });
+
+  const unauthLog = await fetch(`${url}/bridge/health/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '全麦面包2片' })
+  });
+  assert.equal(unauthLog.status, 401);
+
+  t.mock.method(app.bot, 'askAuxModel', async ({ images = [] }) => JSON.stringify(images.length ? {
+    mealType: 'dinner',
+    summary: '照片识别三文鱼poke碗',
+    calories: 620,
+    proteinG: 39,
+    carbsG: 65,
+    fatG: 20
+  } : {
+    mealType: 'lunch',
+    summary: '牛肉面配卤蛋',
+    calories: 680,
+    proteinG: 32,
+    carbsG: 86,
+    fatG: 21
+  }));
+
+  const badImgRes = await fetch(`${url}/bridge/health/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.syncToken}` },
+    body: JSON.stringify({ imageBase64: Buffer.from('not-png').toString('base64') })
+  });
+  assert.equal(badImgRes.status, 400);
+
+  const textLogRes = await fetch(`${url}/bridge/health/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.syncToken}` },
+    body: JSON.stringify({ mealType: 'auto', text: '牛肉面配卤蛋' })
+  });
+  assert.equal(textLogRes.status, 200);
+  const textLog = await textLogRes.json();
+  assert.equal(textLog.ok, true);
+  assert.equal(textLog.source, 'ai_text');
+  assert.equal(textLog.calories, 680);
+  assert.match(textLog.notificationText, /DeepSeek\/AI 模型估算/);
+
+  const tinyPng = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de', 'hex');
+  const visionLogRes = await fetch(`${url}/bridge/health/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.syncToken}` },
+    body: JSON.stringify({ mealType: 'dinner', imageBase64: tinyPng.toString('base64') })
+  });
+  assert.equal(visionLogRes.status, 200);
+  const visionLog = await visionLogRes.json();
+  assert.equal(visionLog.source, 'vision');
+  assert.equal(visionLog.calories, 620);
+
+  const ackRes = await fetch(`${url}/bridge/health/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.syncToken}` },
+    body: JSON.stringify({ ids: `${textLog.id}\n${visionLog.id}` })
+  });
+  assert.equal(ackRes.status, 200);
+  const ackBody = await ackRes.json();
+  assert.equal(ackBody.acked, 2);
+  assert.equal(ackBody.remaining, 0);
 });

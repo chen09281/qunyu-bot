@@ -627,6 +627,12 @@ export function inferCurrentMealSlot(hour) {
   return 'dinner';
 }
 
+export function mealSourceLabel(source) {
+  if (source === 'vision') return '图片识别估算';
+  if (source === 'ai_text') return 'DeepSeek/AI 模型估算';
+  return '文字录入/本地估算';
+}
+
 export function formatPlanText(userName, plan, singleMealType = '') {
   const t = plan.targets;
   const header = [

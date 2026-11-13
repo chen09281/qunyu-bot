@@ -31,6 +31,7 @@ import { TokenUsageService } from './token-usage.mjs';
 import { GameCalendarService } from './game-calendar/service.mjs';
 import { GameCalendarCommands } from './game-calendar/commands.mjs';
 import { tokenToolResponse } from './checkin/token-tool/downloads.mjs';
+import { healthToolResponse } from './health-planner/tool-downloads.mjs';
 import { TavernManager } from './tavern/tavern-manager.mjs';
 import { TavernCommands } from './tavern/commands.mjs';
 import { normalizeCardData } from './tavern/card-parser.mjs';
@@ -175,6 +176,8 @@ export async function createApplication(options = {}) {
   });
   bot.healthPlannerCommands = new HealthPlannerCommands(store, healthPlanner, {
     ...options.healthPlannerCommandOptions,
+    dataDir,
+    napcatMediaDir: process.env.NAPCAT_MEDIA_DIR ?? '',
     onebot: (...args) => bot.onebot(...args),
     log: (level, message, fields) => bot.log(level, message, fields)
   });
@@ -228,6 +231,13 @@ export async function createApplication(options = {}) {
         res.writeHead(toolDownload.status, toolDownload.headers);
         res.end(req.method === 'HEAD' ? undefined : toolDownload.body); return;
       }
+      const healthDownload = healthToolResponse(path, req.method, {
+        publicUrl: publicOrigin || store.config.consolePublicUrl || ''
+      });
+      if (healthDownload) {
+        res.writeHead(healthDownload.status, healthDownload.headers);
+        res.end(req.method === 'HEAD' ? undefined : healthDownload.body); return;
+      }
       if (path === '/onebot/events' && req.method === 'POST') {
         const config = store.config;
         const bearerValid = safeEqual(req.headers.authorization, `Bearer ${config.webhookToken}`);
@@ -257,6 +267,11 @@ export async function createApplication(options = {}) {
         if (path === '/bridge/health/ack' && req.method === 'POST') {
           if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
           const result = healthPlanner.ackPendingAppleNutrition(bearer, parseJSON(await body(req, 64 * 1024)));
+          return send(result.status, result.body);
+        }
+        if (path === '/bridge/health/log' && req.method === 'POST') {
+          if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, '请使用 application/json');
+          const result = await healthPlanner.logMealFromBridge(bearer, parseJSON(await body(req, 5 * 1024 * 1024)));
           return send(result.status, result.body);
         }
         throw new HttpError(404, '接口不存在');
