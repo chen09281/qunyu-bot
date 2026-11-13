@@ -225,7 +225,7 @@ export class Bot {
     const request = completionRequest(reqConfig, messages, []);
     const usageTimestamp = Date.now();
     const data = await this.request(`${reqConfig.deepseekUrl}${request.path}`, request.body, reqConfig.deepseekKey, reqConfig.timeoutSeconds, 'POST', {
-      protocol: reqConfig.modelProtocol
+      protocol: reqConfig.modelProtocol || 'chat'
     });
     const promptTokens = tokenCount(data.usage?.prompt_tokens);
     const cachedTokens = tokenCount(data.usage?.prompt_cache_hit_tokens ?? data.usage?.prompt_tokens_details?.cached_tokens);
@@ -394,7 +394,8 @@ export class Bot {
         ...(method === 'GET' ? {} : { body: JSON.stringify(body) })
       });
       if (!response.ok) { await response.body?.cancel(); throw new Error(`上游 HTTP ${response.status}`); }
-      if (options.onDelta) {
+      // Model response parsing is also needed by callers without a live preview.
+      if (options.onDelta || options.protocol === 'chat' || options.protocol === 'responses') {
         options.onTransport?.(/text\/event-stream/i.test(response.headers.get('content-type') || ''));
         return await (options.protocol === 'responses' ? readResponsesResponse : readChatResponse)(response, options);
       }

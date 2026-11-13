@@ -202,3 +202,14 @@ process.exit(0);
   assert.equal(existsSync(staleDir), false);
   assert.equal(existsSync(freshDir), true);
 });
+
+test('三份机器人 Compose 与环境示例均透传 DATA_ENCRYPTION_KEY', () => {
+  for (const file of ['compose.yaml', 'compose.integrated.yaml', 'compose.ubuntu.yaml']) {
+    const content = readFileSync(join(root, file), 'utf8');
+    assert.match(content, /^\s+DATA_ENCRYPTION_KEY:\s*\$\{DATA_ENCRYPTION_KEY:-\}\s*$/m, `${file} 缺少 DATA_ENCRYPTION_KEY 透传`);
+  }
+  for (const envFile of ['.env.example', '.env.ubuntu.example']) {
+    const content = readFileSync(join(root, envFile), 'utf8');
+    assert.match(content, /^DATA_ENCRYPTION_KEY=/m, `${envFile} 缺少 DATA_ENCRYPTION_KEY 示例`);
+  }
+});

@@ -47,3 +47,99 @@ test('旧每日私聊设置迁移为每周邮件，移除 QQ 收件人，连接�
  const store=await openStore(dir);assert.equal(store.config.billReportFrequency,'weekly');assert.equal(store.config.billReportRecipient,undefined);assert.equal(store.config.onebotToken,'TEST_CONNECTION_TOKEN');
  const next=validatePatch(store.config,{smtpHost:'smtp.example.com',smtpUser:'sender@example.com',smtpPassword:'TEST_ONLY',emailAlertRecipient:'admin@example.com',billReportEnabled:true,emailAlertsEnabled:false});assert.equal(next.billReportEnabled,true);
 });
+
+test('每周账单失败后按退避间隔自动重试（含跨过 15 分钟窗口与重启后），成功后继续去重', async t => {
+ let now = Date.parse('2026-11-09T08:00:00+08:00'), fail = true, sent = 0;
+ const warnings = [];
+ const c = { ...defaultConfig(), billReportEnabled: true, smtpHost: 'smtp.example.com', smtpUser: 'TEST_USER', smtpPassword: 'TEST_SECRET_PASSWORD', emailAlertRecipient: 'admin@example.com' };
+ const dir = folder(t), m = new TokenUsageService(dir), bot = { log: (lvl, msg) => warnings.push(`${lvl}:${msg}`) };
+ const makeOps = () => new Operations(dir, { config: c }, bot, {}, m, {
+   now: () => now,
+   sendMail: async () => { if (fail) throw new Error(c.smtpPassword); sent++; }
+ });
+
+ const ops1 = makeOps();
+ await ops1.tick();
+ assert.equal(sent, 0);
+ assert.equal(ops1.status().reports['weekly:2026-11-09'].status, 'failed');
+ assert.equal(ops1.status().reports['weekly:2026-11-09'].attempts, 1);
+
+ // 4 分钟后尚未到达 5 分钟退避窗口，不重试
+ now += 4 * 60000;
+ await ops1.tick();
+ assert.equal(ops1.status().reports['weekly:2026-11-09'].attempts, 1);
+
+ // 第 5 分钟同进程内触发第 2 次尝试，仍失败则进入 10 分钟退避（推迟到 08:15 之后）
+ now += 60000;
+ await ops1.tick();
+ assert.equal(ops1.status().reports['weekly:2026-11-09'].attempts, 2);
+
+ // 第 08:14（仅过去 9 分钟）重启也不提前重试
+ now += 9 * 60000;
+ ops1.close();
+ const ops2 = makeOps();
+ await ops2.tick();
+ assert.equal(ops2.status().reports['weekly:2026-11-09'].attempts, 2);
+ assert.equal(sent, 0);
+
+ // 08:20 已超出 08:00~08:15 触发窗口，恢复正常并在重启实例中完成补发
+ now += 6 * 60000;
+ assert.equal(reportWindow(now, c), null);
+ fail = false;
+ await ops2.tick();
+ assert.equal(sent, 1);
+ assert.equal(ops2.status().reports['weekly:2026-11-09'].status, 'sent');
+
+ // 成功后同进程与再次重启均去重
+ await ops2.tick();
+ ops2.close();
+ await makeOps().tick();
+ assert.equal(sent, 1);
+ assert.ok(warnings.every(w => !w.includes(c.smtpPassword)));
+});
+
+test('每周账单兼容恢复重启中断的 sending 与旧版 failed 记录，超出重试上限或停机后正常收敛', async t => {
+ let now = Date.parse('2026-11-09T08:00:00+08:00'), sent = 0;
+ const c = { ...defaultConfig(), billReportEnabled: true, smtpHost: 'smtp.example.com', smtpUser: 'TEST_USER', smtpPassword: 'TEST_SECRET_PASSWORD', emailAlertRecipient: 'admin@example.com' };
+ const dir = folder(t), m = new TokenUsageService(dir);
+ const bot = { log() {} };
+
+ // 1. 磁盘残留旧进程中断的 sending 状态
+ writeFileSync(join(dir, 'operations.json'), JSON.stringify({ reports: { 'weekly:2026-11-09': { at: now, status: 'sending' } } }));
+ now += 6 * 60000;
+ const opsSending = new Operations(dir, { config: c }, bot, {}, m, { now: () => now, sendMail: async () => { sent++; } });
+ await opsSending.tick();
+ assert.equal(sent, 1);
+ assert.equal(opsSending.status().reports['weekly:2026-11-09'].status, 'sent');
+ opsSending.close();
+
+ // 2. 磁盘残留旧版仅含 at/status=failed 的记录
+ const dirLegacy = folder(t);
+ let legacyNow = Date.parse('2026-11-09T08:00:00+08:00'), legacySent = 0;
+ writeFileSync(join(dirLegacy, 'operations.json'), JSON.stringify({ reports: { 'weekly:2026-11-09': { at: legacyNow, status: 'failed' } } }));
+ legacyNow += 5 * 60000;
+ const opsLegacy = new Operations(dirLegacy, { config: c }, bot, {}, new TokenUsageService(dirLegacy), { now: () => legacyNow, sendMail: async () => { legacySent++; } });
+ await opsLegacy.tick();
+ assert.equal(legacySent, 1);
+ assert.equal(opsLegacy.status().reports['weekly:2026-11-09'].status, 'sent');
+ opsLegacy.close();
+
+ // 3. 重试达到上限后不再重试
+ const dirCap = folder(t);
+ let capNow = Date.parse('2026-11-09T08:00:00+08:00'), attempts = 0;
+ const opsCap = new Operations(dirCap, { config: c }, bot, {}, new TokenUsageService(dirCap), {
+   now: () => capNow,
+   sendMail: async () => { attempts++; throw new Error('SMTP down'); }
+ });
+ await opsCap.tick();
+ for (let i = 0; i < 15; i++) {
+   const next = opsCap.status().reports['weekly:2026-11-09'].nextRetryAt;
+   if (!next) { capNow += 2 * 3600000; await opsCap.tick(); continue; }
+   capNow = next;
+   await opsCap.tick();
+ }
+ assert.equal(attempts, 12);
+ assert.equal(opsCap.status().reports['weekly:2026-11-09'].status, 'failed');
+ assert.equal(opsCap.status().reports['weekly:2026-11-09'].nextRetryAt, undefined);
+ opsCap.close();
+});

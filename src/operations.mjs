@@ -7,6 +7,23 @@ import { beijingClock } from './token-usage.mjs';
 import { quarantineCorruptFile } from './security.mjs';
 import { toCny } from './api-billing.mjs';
 const dateShift = (day, n) => new Date(Date.parse(day) + n * 86400000).toISOString().slice(0,10);
+const REPORT_RETRY_BASE_MS = 5 * 60000;
+const REPORT_RETRY_MAX_MS = 60 * 60000;
+const REPORT_MAX_ATTEMPTS = 12;
+const REPORT_RETRY_MAX_AGE_MS = 24 * 3600000;
+const reportRetryDelay = attempts => Math.min(REPORT_RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)), REPORT_RETRY_MAX_MS);
+function parseWeeklyWindow(key) {
+  const match = /^weekly:(\d{4}-\d{2}-\d{2})$/.exec(String(key || ''));
+  if (!match) return null;
+  const day = match[1], parsed = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== day) return null;
+  return { key, start: dateShift(day, -7), end: dateShift(day, -1) };
+}
+function nextReportRetryAt(now, firstAttemptAt, attempts) {
+  if (attempts >= REPORT_MAX_ATTEMPTS) return null;
+  const candidate = now + reportRetryDelay(attempts);
+  return candidate - firstAttemptAt <= REPORT_RETRY_MAX_AGE_MS ? candidate : null;
+}
 export function reportWindow(now, config) {
   const clock = beijingClock(now), time = config.billReportTime || '08:00';
   const target = Date.parse(`${clock.day}T${time}:00+08:00`);
@@ -62,6 +79,7 @@ export class Operations {
       }
     }
     this.state.reports ||= {}; this.failures=0;this.closed=false;this.busy=false;
+    this.normalizeReports();
     this.sendMail=sendMail || (async (config,subject,text,html,attachments)=>{
       const {default:nodemailer}=await import('nodemailer');
       const transport=nodemailer.createTransport({host:config.smtpHost,port:config.smtpPort,secure:config.smtpSecure,requireTLS:!config.smtpSecure,
@@ -91,23 +109,105 @@ export class Operations {
       throw Object.assign(Error('账单邮件发送失败，请检查 SMTP 配置或邮箱服务状态'), {status:502});
     } finally {this.busy=false;this.manualSending=false;}
   }
+  /** Recover interrupted sends and backfill retry metadata on loaded weekly report records. */
+  normalizeReports(){
+    const now = this.now(), next = {};
+    let dirty = false;
+    for (const [key, row] of Object.entries(this.state.reports || {})) {
+      if (!row || typeof row !== 'object') { dirty = true; continue; }
+      const fallback = parseWeeklyWindow(key);
+      const start = row.start || fallback?.start;
+      const end = row.end || fallback?.end;
+      if (row.status === 'sent') {
+        const cleaned = { ...(start ? { start } : {}), ...(end ? { end } : {}), ...row, status: 'sent' };
+        delete cleaned.nextRetryAt;
+        next[key] = cleaned;
+        if ('nextRetryAt' in row || (start && !row.start) || (end && !row.end)) dirty = true;
+        continue;
+      }
+      if (row.status === 'sending' || (row.status === 'failed' && !Number.isInteger(row.attempts))) {
+        const attempts = Number.isInteger(row.attempts) && row.attempts >= 0 ? row.attempts : 1;
+        const at = Number.isFinite(row.at) ? row.at : now;
+        const firstAttemptAt = Number.isFinite(row.firstAttemptAt) ? row.firstAttemptAt : at;
+        const retryAt = nextReportRetryAt(at, firstAttemptAt, attempts);
+        next[key] = {
+          ...(start ? { start } : {}), ...(end ? { end } : {}),
+          at, firstAttemptAt, status: 'failed', attempts,
+          ...(retryAt ? { nextRetryAt: retryAt } : {})
+        };
+        dirty = true;
+        continue;
+      }
+      next[key] = row;
+    }
+    this.state.reports = next;
+    if (dirty) this.save();
+  }
+  canRetryReport(record, now){
+    if (!record || record.status !== 'failed') return false;
+    const attempts = Number.isInteger(record.attempts) ? record.attempts : 1;
+    const firstAttemptAt = Number.isFinite(record.firstAttemptAt) ? record.firstAttemptAt : (Number.isFinite(record.at) ? record.at : now);
+    if (attempts >= REPORT_MAX_ATTEMPTS) return false;
+    if (now - firstAttemptAt > REPORT_RETRY_MAX_AGE_MS) return false;
+    return Number.isFinite(record.nextRetryAt) && now >= record.nextRetryAt;
+  }
+  reportTarget(now, config){
+    const current = reportWindow(now, config);
+    if (current) {
+      const record = this.state.reports[current.key];
+      if (!record) return current;
+      return this.canRetryReport(record, now) ? current : null;
+    }
+    for (const [key, record] of Object.entries(this.state.reports).reverse()) {
+      if (!this.canRetryReport(record, now)) continue;
+      const fallback = parseWeeklyWindow(key);
+      const start = record.start || fallback?.start;
+      const end = record.end || fallback?.end;
+      if (start && end) return { key, start, end };
+    }
+    return null;
+  }
+  async sendScheduledReport(c){
+    const now = this.now(), window = this.reportTarget(now, c);
+    if (!window) return;
+    const previous = this.state.reports[window.key] ? { ...this.state.reports[window.key] } : null;
+    const firstAttemptAt = Number.isFinite(previous?.firstAttemptAt) ? previous.firstAttemptAt : (Number.isFinite(previous?.at) ? previous.at : now);
+    const attempts = (Number.isInteger(previous?.attempts) && previous.attempts >= 0 ? previous.attempts : 0) + 1;
+    this.state.reports[window.key] = { start: window.start, end: window.end, at: now, firstAttemptAt, status: 'sending', attempts };
+    this.state.reports = Object.fromEntries(Object.entries(this.state.reports).slice(-40));
+    this.save();
+    try {
+      const mail = await createReportEmail(billSummary(this.meter, window), { renderChart: this.renderChart });
+      if (this.closed) {
+        this.state.reports[window.key] = {
+          start: window.start, end: window.end, at: now, firstAttemptAt,
+          status: 'failed', attempts: previous?.attempts || 0, nextRetryAt: now
+        };
+        this.save();
+        return;
+      }
+      await this.sendMail(c, mail.subject, mail.text, mail.html, mail.attachments);
+      this.state.reports[window.key] = { start: window.start, end: window.end, at: this.now(), firstAttemptAt, status: 'sent', attempts };
+    } catch {
+      const failedAt = this.now();
+      const retryAt = nextReportRetryAt(failedAt, firstAttemptAt, attempts);
+      this.state.reports[window.key] = {
+        start: window.start, end: window.end, at: failedAt, firstAttemptAt, status: 'failed', attempts,
+        ...(retryAt ? { nextRetryAt: retryAt } : {})
+      };
+      this.bot.log('warn', retryAt
+        ? `每周账单邮件发送失败（第 ${attempts} 次），将在 ${Math.max(1, Math.round((retryAt - failedAt) / 60000))} 分钟后重试，请检查 SMTP 配置`
+        : '每周账单邮件多次发送失败，已停止自动重试，请检查 SMTP 配置');
+    }
+    this.save();
+  }
   async tick(){
     if(this.closed||this.busy)return;this.busy=true;
     try {
       const c={...this.store.config};
       if(c.emailAlertsEnabled) await this.checkOffline(c);
       if(c.billReportEnabled && c.smtpHost && c.smtpUser && c.smtpPassword && c.emailAlertRecipient) {
-        const window=reportWindow(this.now(),c);
-        if(window&&!this.state.reports[window.key]) {
-          this.state.reports[window.key]={at:this.now(),status:'sending'};this.state.reports=Object.fromEntries(Object.entries(this.state.reports).slice(-40));this.save();
-          try {
-            const mail=await createReportEmail(billSummary(this.meter,window),{renderChart:this.renderChart});
-            if(this.closed)return;
-            await this.sendMail(c,mail.subject,mail.text,mail.html,mail.attachments);
-            this.state.reports[window.key].status='sent';
-          } catch {this.state.reports[window.key].status='failed';this.bot.log('warn','每周账单邮件发送失败，请检查 SMTP 配置');}
-          this.save();
-        }
+        await this.sendScheduledReport(c);
       }
     } finally {this.busy=false;}
   }

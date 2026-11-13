@@ -139,7 +139,7 @@ npm start
 * 若在公网服务器长期运行，**强烈建议**前置 Nginx / Caddy 配置 **HTTPS 反向代理**，同时在 `.env` / `.env.ubuntu` 设置：
   * `COOKIE_SECURE=true`（或 `UBUNTU_COOKIE_SECURE=true`）
   * `PUBLIC_ORIGIN=https://你的域名`（或 `UBUNTU_PUBLIC_ORIGIN=https://你的域名`）
-  * `DATA_ENCRYPTION_KEY=<随机高强度密钥>`（加密保存签到和平台登录态）
+  * `DATA_ENCRYPTION_KEY=<随机高强度密钥>`（加密保存平台解析 Cookie；签到凭据使用独立的 `data/checkin/key`）
 * 不要将 NapCat 的 `3000`、`6099` 端口暴露到公网。
 
 ---
@@ -169,12 +169,14 @@ npm start
 | `HOST` / `PORT` | `127.0.0.1` / `3080` | 进程实际绑定地址与端口 |
 | `BOT_BIND` / `UBUNTU_BIND` | `127.0.0.1` / `0.0.0.0` | Docker 宿主机端口监听地址 |
 | `DATA_DIR` / `UBUNTU_DATA_DIR` | `./data` | 管理员、配置、数据库与日志持久化目录 |
-| `DATA_ENCRYPTION_KEY` | 空 | 可选，用于加密存储平台解析与签到凭据的主密钥 |
+| `DATA_ENCRYPTION_KEY` | 空 | 可选，用于加密存储平台解析 Cookie 的主密钥；签到凭据使用独立密钥 |
 | `COOKIE_SECURE` / `UBUNTU_COOKIE_SECURE` | `false` | 启用 HTTPS 反向代理后改为 `true` |
 | `PUBLIC_ORIGIN` / `UBUNTU_PUBLIC_ORIGIN` | 空 | 反向代理真实外网 Origin，用于严格同源校验 |
 | `GC_INTERVAL_MINUTES` | `15` | 空闲定时回收 JS 堆的周期（分钟），`0` 关闭 |
 | `RSSHUB_INTERNAL_URL` | 空 | 仅由服务端设置的固定内网 RSSHub 地址（如 `http://rsshub:1200`） |
 | `ADMIN_PASSWORD` / `UBUNTU_ADMIN_PASSWORD` | 空 | 仅兼容旧版无向导预置密码脚本，新建部署保持留空即可 |
+
+三份机器人 Compose 配置均将 `DATA_ENCRYPTION_KEY` 传给机器人容器。修改 `.env`（Ubuntu 为 `.env.ubuntu`）后，需要重新创建容器才能加载新值，仅执行 `restart` 不会更新环境变量。已有明文 Cookie 不会自动迁移，需在后台重新保存或重新扫码；已加密 Cookie 需保留原密钥才能读取。密钥应单独备份，具体操作见 [平台 Cookie 加密配置](docs/delivery/01-部署与首次配置.md#平台-cookie-加密配置)。
 
 ---
 
